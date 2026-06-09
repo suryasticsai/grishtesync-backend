@@ -30,7 +30,7 @@ HF_AUTHORIZE_URL = "https://huggingface.co/oauth/authorize"
 HF_TOKEN_URL = "https://huggingface.co/oauth/token"
 HF_API_URL = "https://huggingface.co/api"
 
-# ---------- OAuth Routes ----------
+# ---------- GitHub OAuth ----------
 @app.route("/auth/login")
 def github_login():
     params = {
@@ -59,6 +59,7 @@ def github_callback():
         return jsonify({"error": "GitHub token error", "details": data}), 500
     return redirect(f"{FRONTEND_URL}?token={data['access_token']}")
 
+# ---------- Hugging Face OAuth (debug mode) ----------
 @app.route("/hf/login")
 def hf_login():
     params = {
@@ -69,25 +70,30 @@ def hf_login():
     }
     return redirect(f"{HF_AUTHORIZE_URL}?{urlencode(params)}")
 
+# 🔍 DEBUG: Shows the full token exchange response instead of redirecting
 @app.route("/hf/callback")
 def hf_callback():
     code = request.args.get("code")
     if not code:
         return jsonify({"error": "Missing code"}), 400
-    resp = requests.post(HF_TOKEN_URL,
-        data={
-            "client_id": HF_CLIENT_ID,
-            "client_secret": HF_CLIENT_SECRET,
-            "code": code,
-            "grant_type": "authorization_code",
-            "redirect_uri": f"{request.host_url.rstrip('/')}/hf/callback"
-        })
-    data = resp.json()
-    if "access_token" not in data:
-        return jsonify({"error": "HF token error", "details": data}), 500
-    return redirect(f"{FRONTEND_URL}?hf_token={data['access_token']}")
 
-# ---------- AI Generation with watermark & logo ----------
+    payload = {
+        "client_id": HF_CLIENT_ID,
+        "client_secret": HF_CLIENT_SECRET,
+        "code": code,
+        "grant_type": "authorization_code",
+        "redirect_uri": f"{request.host_url.rstrip('/')}/hf/callback"
+    }
+    resp = requests.post(HF_TOKEN_URL, data=payload)
+
+    # Return the raw Hugging Face response so you can copy the error
+    return jsonify({
+        "debug_sent": payload,
+        "response_status": resp.status_code,
+        "response_body": resp.json()
+    })
+
+# ---------- AI Generation (unchanged) ----------
 @app.route("/api/generate", methods=["POST"])
 def generate():
     data = request.get_json()
@@ -101,7 +107,6 @@ def generate():
     if not prompt:
         return jsonify({"error": "Prompt is required."}), 400
 
-    # System prompt that enforces watermarks + logo
     system_prompt = (
         "You are an expert Python developer. "
         "The user will give a description of the app they want. "
@@ -137,7 +142,6 @@ def generate():
         {"role": "user", "content": f"Build/update: {prompt}"}
     ]
 
-    # If updating an existing repo, fetch its code and provide context
     if repo_full_name and user_token:
         try:
             headers = {"Authorization": f"token {user_token}", "Accept": "application/vnd.github.v3+json"}
@@ -154,7 +158,6 @@ def generate():
             context = "Current codebase (update it according to the prompt):\n"
             for fname, content in existing_code.items():
                 context += f"\n--- {fname} ---\n{content}\n"
-            # Prepend context to messages
             messages.insert(0, {"role": "system", "content": context + "\n" + system_prompt})
         except Exception as e:
             return jsonify({"error": f"Error fetching repo: {str(e)}"}), 500
@@ -167,7 +170,6 @@ def generate():
         )
         resp.raise_for_status()
         ai_content = resp.json()["choices"][0]["message"]["content"].strip()
-        # Clean up JSON
         if ai_content.startswith("```json"):
             ai_content = ai_content[7:]
         if ai_content.endswith("```"):
@@ -182,7 +184,7 @@ def generate():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---------- Deploy to GitHub (with PR & watermark) ----------
+# ---------- Deploy to GitHub ----------
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
     auth_header = request.headers.get("Authorization")
@@ -190,7 +192,7 @@ def deploy():
         return jsonify({"error": "Missing GitHub token"}), 401
     user_token = auth_header.split(" ", 1)[1]
     data = request.get_json()
-    repo_name = data.get("repo_name")          # e.g., "GrishteSync-xyz"
+    repo_name = data.get("repo_name")
     files = data.get("files", {})
     version = data.get("version", "0.0.0")
 
@@ -200,7 +202,6 @@ def deploy():
         return jsonify({"error": "Invalid token"}), 401
     username = user_resp.json()["login"]
 
-    # 1. Create or get the repository
     repo_url = f"{GITHUB_API_URL}/repos/{username}/{repo_name}"
     check = requests.get(repo_url, headers=headers)
     if check.status_code != 200:
@@ -208,10 +209,10 @@ def deploy():
                                     json={"name": repo_name, "private": False, "auto_init": True})
         if create_resp.status_code not in [200, 201]:
             return jsonify({"error": f"Failed to create repo: {create_resp.text}"}), 500
+
     repo_info = requests.get(repo_url, headers=headers).json()
     default_branch = repo_info.get("default_branch", "main")
 
-    # 2. Create a feature branch
     branch_name = f"agent/feature-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
     ref_url = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs/heads/{default_branch}"
     ref_resp = requests.get(ref_url, headers=headers)
@@ -223,7 +224,6 @@ def deploy():
     if create_ref.status_code != 201:
         return jsonify({"error": f"Failed to create branch: {create_ref.text}"}), 500
 
-    # 3. Push files to the branch
     for filepath, content in files.items():
         encoded = base64.b64encode(content.encode()).decode()
         api_path = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/contents/{filepath}"
@@ -237,12 +237,12 @@ def deploy():
         if put_resp.status_code not in [200, 201]:
             return jsonify({"error": f"Push failed for {filepath}: {put_resp.text}"}), 500
 
-    # 4. Create a Pull Request with watermark
-    pr_data = {
-        "title": f"GrishteSync update v{version}",
-        "head": branch_name,
-        "base": default_branch,
-        "body": (
+    # PR with custom description
+    custom_description = data.get("pr_description")
+    if custom_description:
+        pr_body = custom_description
+    else:
+        pr_body = (
             f"## 🌀 GrishteSync Automatic Pull Request\n\n"
             f"**Version:** v{version}\n\n"
             f"**Files changed:**\n" +
@@ -250,17 +250,21 @@ def deploy():
             f"*Created with [GrishteSync](https://suryasticsai.github.io/GrishteSync) | [Suryasticsai](https://github.com/suryasticsai) | suryasticsai@gmail.com*\n\n"
             f"![GrishteSync Logo](https://i.ibb.co/pjmCv3Vy/1781038658031.png)"
         )
+
+    pr_data = {
+        "title": f"GrishteSync update v{version}",
+        "head": branch_name,
+        "base": default_branch,
+        "body": pr_body
     }
     pr_resp = requests.post(f"{GITHUB_API_URL}/repos/{username}/{repo_name}/pulls", headers=headers, json=pr_data)
-    if pr_resp.status_code not in [200, 201]:
-        # PR may already exist; non‑fatal
-        pass
+    pr_url = pr_resp.json().get("html_url") if pr_resp.status_code in [200, 201] else None
 
     return jsonify({
         "status": "success",
         "repo_url": f"https://github.com/{username}/{repo_name}",
         "branch": branch_name,
-        "pr_url": pr_resp.json().get("html_url") if pr_resp.status_code in [200, 201] else None
+        "pr_url": pr_url
     })
 
 # ---------- Hugging Face Deploy ----------
@@ -277,7 +281,7 @@ def deploy_hf():
     hf_token = hf_header.split(" ", 1)[1]
 
     data = request.get_json()
-    repo_full_name = data.get("repo_full_name")  # e.g., username/GrishteSync-xyz
+    repo_full_name = data.get("repo_full_name")
     space_name = data.get("space_name", repo_full_name.split("/")[1] if repo_full_name else "grishte-app")
     sdk = data.get("sdk", "streamlit")
 
