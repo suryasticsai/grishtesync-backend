@@ -1,4 +1,4 @@
-# GrishteSync backend - v0.0.1
+# GrishteSync backend - v0.1
 import os
 import re
 import json
@@ -39,7 +39,7 @@ def login():
 def callback():
     code = request.args.get("code")
     if not code:
-        return "Missing code.", 400
+        return jsonify({"error": "Missing code"}), 400
 
     token_resp = requests.post(
         GITHUB_TOKEN_URL,
@@ -53,42 +53,79 @@ def callback():
     )
     token_json = token_resp.json()
     if "access_token" not in token_json:
-        return f"Failed to get token: {token_json}", 500
+        return jsonify({"error": "Failed to get token", "details": token_json}), 500
 
     access_token = token_json["access_token"]
     return redirect(f"{FRONTEND_URL}?token={access_token}")
 
-# ---------- AI Generation (unchanged) ----------
-@app.route("/")
-def home():
-    return "GrishteSync backend is running."
-
+# ---------- AI Generation (NEW – supports updates) ----------
 @app.route("/api/generate", methods=["POST"])
 def generate():
     data = request.get_json()
     prompt = data.get("prompt", "").strip()
+    repo_full_name = data.get("repo")  # optional, e.g., "username/repo"
+    user_token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("token "):
+        user_token = auth_header.split(" ", 1)[1]
+
     if not prompt:
         return jsonify({"error": "Prompt is required."}), 400
 
-    system_prompt = (
-        "You are an expert Python developer. "
-        "Given a user request, determine if they want a Streamlit app, a Gradio app, or a Flask app. "
-        "Default to Gradio if unclear. "
-        "Generate the complete code for that framework. "
-        "Return exactly a JSON object with a key 'files' that maps filenames to file contents. "
-        "For Streamlit: 'app.py' must contain a runnable Streamlit script (no 'if __name__' block needed). "
-        "For Gradio: standard Gradio interface with demo.launch(). "
-        "For Flask: standard Flask app with app.run(). "
-        "Also include 'requirements.txt' with the necessary dependencies, "
-        "and any other files like '.env.example', 'tests/test_main.py', 'README.md'. "
-        "Use valid JSON: escape double quotes inside strings, use \\n for newlines. "
-        "Do not wrap the JSON in markdown. "
-        "Example: {\"files\": {\"app.py\": \"import streamlit as st\\n\\nst.title('My App')\\nname = st.text_input('Your name')\\nst.write(f'Hello {name}')\"}}"
-    )
+    # Build system prompt
+    if repo_full_name and user_token:
+        # Fetch current codebase
+        try:
+            headers = {"Authorization": f"token {user_token}", "Accept": "application/vnd.github.v3+json"}
+            # Get repo contents (shallow – we'll fetch top-level tree)
+            contents_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/contents"
+            contents_resp = requests.get(contents_url, headers=headers)
+            if contents_resp.status_code != 200:
+                return jsonify({"error": f"Failed to read repo: {contents_resp.status_code} {contents_resp.text}"}), 500
+            repo_files = contents_resp.json()
+            # For each file, get content (only if size < ~1 MB)
+            existing_code = {}
+            for item in repo_files:
+                if item["type"] == "file" and item["size"] < 500000:
+                    file_content = requests.get(item["download_url"]).text
+                    existing_code[item["name"]] = file_content
+            # Build context string
+            context = "Current codebase:\n"
+            for fname, content in existing_code.items():
+                context += f"\n--- {fname} ---\n{content}\n"
+        except Exception as e:
+            return jsonify({"error": f"Error fetching repo: {str(e)}"}), 500
+
+        system_prompt = (
+            "You are an expert Python developer. "
+            "Below is the current codebase. Modify it according to the user's request. "
+            "Return exactly a JSON object with a key 'files' that maps filenames to the **complete updated file contents**. "
+            "Include all existing files even if unchanged, plus any new files needed. "
+            "Use valid JSON: escape double quotes inside strings, use \\n for newlines. "
+            "Do not wrap the JSON in markdown.\n\n"
+            f"{context}"
+        )
+    else:
+        # Original new-app generation
+        system_prompt = (
+            "You are an expert Python developer. "
+            "Given a user request, determine if they want a Streamlit app, a Gradio app, or a Flask app. "
+            "Default to Gradio if unclear. "
+            "Generate the complete code for that framework. "
+            "Return exactly a JSON object with a key 'files' that maps filenames to file contents. "
+            "For Streamlit: 'app.py' must contain a runnable Streamlit script (no 'if __name__' block needed). "
+            "For Gradio: standard Gradio interface with demo.launch(). "
+            "For Flask: standard Flask app with app.run(). "
+            "Also include 'requirements.txt' with the necessary dependencies, "
+            "and any other files like '.env.example', 'tests/test_main.py', 'README.md'. "
+            "Use valid JSON: escape double quotes inside strings, use \\n for newlines. "
+            "Do not wrap the JSON in markdown. "
+            "Example: {\"files\": {\"app.py\": \"import streamlit as st\\n...\"}}"
+        )
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Build a Python AI app with this description: {prompt}"}
+        {"role": "user", "content": f"Build/update the Python AI app with this description: {prompt}"}
     ]
 
     try:
@@ -134,7 +171,7 @@ def generate():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---------- Deploy (with user's token) ----------
+# ---------- Deploy (unchanged – works for new and existing repos) ----------
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
     auth_header = request.headers.get("Authorization")
@@ -161,6 +198,7 @@ def deploy():
     repo_url = f"{GITHUB_API_URL}/repos/{username}/{repo_name}"
     check = requests.get(repo_url, headers=headers)
     if check.status_code != 200:
+        # Create new repo
         create_data = {"name": repo_name, "private": False, "auto_init": True}
         create_resp = requests.post(f"{GITHUB_API_URL}/user/repos", headers=headers, json=create_data)
         if create_resp.status_code not in [200, 201]:
@@ -172,7 +210,7 @@ def deploy():
     for filepath, content in files.items():
         encoded = base64.b64encode(content.encode()).decode()
         api_path = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/contents/{filepath}"
-        commit_message = f"Add {filepath} via GrishteSync v{version}"
+        commit_message = f"Update {filepath} via GrishteSync v{version}"
         payload = {
             "message": commit_message,
             "content": encoded,
