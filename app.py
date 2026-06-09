@@ -1,4 +1,3 @@
-# GrishteSync backend - v0.1
 import os
 import re
 import json
@@ -30,7 +29,7 @@ HF_AUTHORIZE_URL = "https://huggingface.co/oauth/authorize"
 HF_TOKEN_URL = "https://huggingface.co/oauth/token"
 HF_API_URL = "https://huggingface.co/api"
 
-# ---------- OAuth Routes (GitHub & Hugging Face) ----------
+# ---------- OAuth Routes ----------
 @app.route("/auth/login")
 def github_login():
     params = {
@@ -87,7 +86,7 @@ def hf_callback():
         return jsonify({"error": "HF token error", "details": data}), 500
     return redirect(f"{FRONTEND_URL}?hf_token={data['access_token']}")
 
-# ---------- AI Generation with watermarks ----------
+# ---------- AI Generation with watermark & logo ----------
 @app.route("/api/generate", methods=["POST"])
 def generate():
     data = request.get_json()
@@ -101,13 +100,7 @@ def generate():
     if not prompt:
         return jsonify({"error": "Prompt is required."}), 400
 
-    # System prompt that enforces watermarks
-    base_watermark = (
-        "# Created with GrishteSync\n"
-        "# https://suryasticsai.github.io/GrishteSync\n"
-        "# Suryasticsai | suryasticsai@gmail.com\n"
-    )
-
+    # System prompt that enforces watermarks + logo
     system_prompt = (
         "You are an expert Python developer. "
         "The user will give a description of the app they want. "
@@ -116,18 +109,26 @@ def generate():
         "Return exactly a JSON object with a key 'files' mapping filenames to file contents. "
         "Important rules:\n"
         "1. Every Python file must start with this exact comment:\n"
-        f"{base_watermark}\n"
-        "2. The main app file (app.py) must include a visible footer in the UI that shows:\n"
+        "# Created with GrishteSync\n"
+        "# https://suryasticsai.github.io/GrishteSync\n"
+        "# Suryasticsai | suryasticsai@gmail.com\n"
+        "2. The main app file (app.py) must include a visible footer that shows:\n"
         "   'Made with GrishteSync | Suryasticsai | suryasticsai@gmail.com'\n"
-        "   and a link to https://suryasticsai.github.io/GrishteSync. "
-        "For Streamlit, use st.markdown() or similar; for Gradio, gr.HTML() or similar.\n"
-        "3. The README.md file must contain a 'Built with GrishteSync' section with:\n"
+        "   and a link to https://suryasticsai.github.io/GrishteSync.\n"
+        "   For Streamlit, use st.markdown() or similar; for Gradio, gr.HTML() or similar.\n"
+        "3. The main app must also show the GrishteSync logo as a header or footer image.\n"
+        "   Use this exact URL for the image: https://i.ibb.co/pjmCv3Vy/1781038658031.png\n"
+        "   For Streamlit: st.image('https://i.ibb.co/pjmCv3Vy/1781038658031.png', width=200)\n"
+        "   For Gradio: gr.HTML('<img src=\"https://i.ibb.co/pjmCv3Vy/1781038658031.png\" width=\"200\">')\n"
+        "   Place it above the title or in the footer, together with the watermark text.\n"
+        "4. The README.md file must contain a 'Built with GrishteSync' section with:\n"
         "   - Link to the author's GitHub: https://github.com/suryasticsai\n"
         "   - LinkedIn: https://linkedin.com/in/suryasticsai\n"
         "   - Email: suryasticsai@gmail.com\n"
-        "4. Use valid JSON: escape double quotes inside strings, use \\n for newlines. Do not wrap the JSON in markdown.\n"
-        "5. Include a requirements.txt with all dependencies.\n"
-        "6. For a meaningless prompt, create a minimal app that simply shows the user's input text."
+        "   - The logo image: ![GrishteSync Logo](https://i.ibb.co/pjmCv3Vy/1781038658031.png)\n"
+        "5. Use valid JSON: escape double quotes inside strings, use \\n for newlines. Do not wrap the JSON in markdown.\n"
+        "6. Include a requirements.txt with all dependencies.\n"
+        "7. For a meaningless prompt, create a minimal app that simply shows the user's input text."
     )
 
     messages = [
@@ -152,6 +153,7 @@ def generate():
             context = "Current codebase (update it according to the prompt):\n"
             for fname, content in existing_code.items():
                 context += f"\n--- {fname} ---\n{content}\n"
+            # Prepend context to messages
             messages.insert(0, {"role": "system", "content": context + "\n" + system_prompt})
         except Exception as e:
             return jsonify({"error": f"Error fetching repo: {str(e)}"}), 500
@@ -165,17 +167,21 @@ def generate():
         resp.raise_for_status()
         ai_content = resp.json()["choices"][0]["message"]["content"].strip()
         # Clean up JSON
-        if ai_content.startswith("```json"): ai_content = ai_content[7:]
-        if ai_content.endswith("```"): ai_content = ai_content[:-3]
+        if ai_content.startswith("```json"):
+            ai_content = ai_content[7:]
+        if ai_content.endswith("```"):
+            ai_content = ai_content[:-3]
         json_match = re.search(r'\{.*\}', ai_content, re.DOTALL)
-        if json_match: ai_content = json_match.group(0)
+        if json_match:
+            ai_content = json_match.group(0)
         generated = json.loads(ai_content)
-        if "files" not in generated: generated = {"files": generated}
+        if "files" not in generated:
+            generated = {"files": generated}
         return jsonify(generated)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---------- Deploy to GitHub (now creates a PR) ----------
+# ---------- Deploy to GitHub (with PR & watermark) ----------
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
     auth_header = request.headers.get("Authorization")
@@ -189,10 +195,11 @@ def deploy():
 
     headers = {"Authorization": f"token {user_token}", "Accept": "application/vnd.github.v3+json"}
     user_resp = requests.get(f"{GITHUB_API_URL}/user", headers=headers)
-    if user_resp.status_code != 200: return jsonify({"error": "Invalid token"}), 401
+    if user_resp.status_code != 200:
+        return jsonify({"error": "Invalid token"}), 401
     username = user_resp.json()["login"]
 
-    # 1. Create or get the repository (using the full repo_name)
+    # 1. Create or get the repository
     repo_url = f"{GITHUB_API_URL}/repos/{username}/{repo_name}"
     check = requests.get(repo_url, headers=headers)
     if check.status_code != 200:
@@ -203,21 +210,19 @@ def deploy():
     repo_info = requests.get(repo_url, headers=headers).json()
     default_branch = repo_info.get("default_branch", "main")
 
-    # 2. Create a new feature branch
+    # 2. Create a feature branch
     branch_name = f"agent/feature-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
-    # Get the SHA of the latest commit on default branch
     ref_url = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs/heads/{default_branch}"
     ref_resp = requests.get(ref_url, headers=headers)
     if ref_resp.status_code != 200:
         return jsonify({"error": "Failed to read default branch ref"}), 500
     sha = ref_resp.json()["object"]["sha"]
-    # Create new branch ref
     new_ref_data = {"ref": f"refs/heads/{branch_name}", "sha": sha}
     create_ref = requests.post(f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs", headers=headers, json=new_ref_data)
     if create_ref.status_code != 201:
         return jsonify({"error": f"Failed to create branch: {create_ref.text}"}), 500
 
-    # 3. Push files to that branch
+    # 3. Push files to the branch
     for filepath, content in files.items():
         encoded = base64.b64encode(content.encode()).decode()
         api_path = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/contents/{filepath}"
@@ -231,7 +236,7 @@ def deploy():
         if put_resp.status_code not in [200, 201]:
             return jsonify({"error": f"Push failed for {filepath}: {put_resp.text}"}), 500
 
-    # 4. Create a Pull Request from the new branch to default branch
+    # 4. Create a Pull Request with watermark
     pr_data = {
         "title": f"GrishteSync update v{version}",
         "head": branch_name,
@@ -241,12 +246,13 @@ def deploy():
             f"**Version:** v{version}\n\n"
             f"**Files changed:**\n" +
             "\n".join([f"- {f}" for f in files.keys()]) + "\n\n"
-            f"*Created with [GrishteSync](https://suryasticsai.github.io/GrishteSync) | [Suryasticsai](https://github.com/suryasticsai) | suryasticsai@gmail.com*"
+            f"*Created with [GrishteSync](https://suryasticsai.github.io/GrishteSync) | [Suryasticsai](https://github.com/suryasticsai) | suryasticsai@gmail.com*\n\n"
+            f"![GrishteSync Logo](https://i.ibb.co/pjmCv3Vy/1781038658031.png)"
         )
     }
     pr_resp = requests.post(f"{GITHUB_API_URL}/repos/{username}/{repo_name}/pulls", headers=headers, json=pr_data)
     if pr_resp.status_code not in [200, 201]:
-        # PR may already exist – we can warn, but not a failure
+        # PR may already exist; non‑fatal
         pass
 
     return jsonify({
@@ -256,7 +262,7 @@ def deploy():
         "pr_url": pr_resp.json().get("html_url") if pr_resp.status_code in [200, 201] else None
     })
 
-# ---------- Hugging Face Deploy (unchanged) ----------
+# ---------- Hugging Face Deploy ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     auth_header = request.headers.get("Authorization")
