@@ -9,7 +9,7 @@ CORS(app)  # Allow requests from your GitHub Pages frontend
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL_NAME = "qwen-2.5-coder-32b"
+MODEL_NAME = "llama-3.3-70b-versatile"
 
 @app.route("/")
 def home():
