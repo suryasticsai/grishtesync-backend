@@ -1,5 +1,5 @@
 # GrishteSync backend - v0.0.1
-iimport os
+import os
 import re
 import json
 import base64
