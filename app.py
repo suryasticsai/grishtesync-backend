@@ -1,4 +1,4 @@
-# GrishteSync v0.4 – Fixed GitHub auth + HF deploy (robust repo_full_name handling)
+# GrishteSync v0.3 – AI Python App Builder (Flask/Gradio/Streamlit) + GitHub/HF Deploy
 import os
 import re
 import json
@@ -105,7 +105,6 @@ def github_callback():
             return jsonify({"error": "GitHub token error", "details": data}), 500
 
         access_token = data["access_token"]
-        # Fetch the username using the new token
         user_resp = requests.get(f"{GITHUB_API_URL}/user",
                                  headers={"Authorization": f"Bearer {access_token}"},
                                  timeout=10)
@@ -117,7 +116,7 @@ def github_callback():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---------- AI Generation ----------
+# ---------- AI Generation (Improved System Prompt) ----------
 
 @app.route("/api/generate", methods=["POST"])
 def generate():
@@ -140,28 +139,37 @@ def generate():
         return jsonify({"error": "Prompt is required."}), 400
 
     system_prompt = (
-        "You are an expert Python developer. "
+        "You are an expert Python developer. Generate a complete web application based on the user's description.\n"
         "Return ONLY a valid JSON object. No markdown, no explanations. Just pure JSON.\n\n"
-        'Format: {"files": {"filename.py": "code here", "filename2.txt": "content here"}}\n\n'
+        'Format: {"files": {"filename.py": "code here", "filename2.txt": "content here", "requirements.txt": "package1\\npackage2"}}\n\n'
         "CRITICAL RULES:\n"
         "- Use double quotes for all keys and strings\n"
         "- Escape double quotes inside strings with backslash\n"
         "- Use \\n for newlines inside code strings\n"
         "- No trailing commas\n"
         "- Response must start with { and end with }\n\n"
-        "Watermark rules:\n"
+        "FRAMEWORK GUIDELINES:\n"
+        "- If the user asks for a web UI with buttons, sliders, plots → use Gradio (import gradio as gr).\n"
+        "- If the user asks for a data dashboard or simple interactive app → use Streamlit.\n"
+        "- If the user asks for a traditional website, API, or backend → use Flask.\n"
+        "- For Flask: include app.run(host='0.0.0.0', port=7860) at the end.\n"
+        "- For Gradio: launch with demo.launch(server_name='0.0.0.0', server_port=7860).\n"
+        "- For Streamlit: no special port needed, just write the script.\n\n"
+        "REQUIREMENTS.TXT:\n"
+        "- Always include a requirements.txt with the necessary packages (flask, gradio, or streamlit).\n"
+        "- Also include 'huggingface_hub' in requirements.txt.\n\n"
+        "WATERMARK RULES:\n"
         "1. Every Python file must start with:\n"
         "# Created with GrishteSync\n"
         "# https://suryasticsai.github.io/GrishteSync\n"
         "# Suryasticsai | suryasticsai@gmail.com\n"
-        "2. app.py must show footer: 'Made with GrishteSync | Suryasticsai | suryasticsai@gmail.com'\n"
-        "3. Show logo: https://i.ibb.co/RGmb4FKk/1781072041102.png\n"
-        "4. Include requirements.txt\n"
+        "2. The main app file must display somewhere: 'Made with GrishteSync | Suryasticsai | suryasticsai@gmail.com'\n"
+        "3. Show logo: https://i.ibb.co/RGmb4FKk/1781072041102.png (use HTML img tag or markdown).\n"
     )
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Build: {prompt}"}
+        {"role": "user", "content": f"Build a web app: {prompt}"}
     ]
 
     if repo_full_name and user_token:
@@ -274,7 +282,7 @@ def generate():
     except Exception as e:
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
-# ---------- Deploy to GitHub (Bearer token) ----------
+# ---------- Deploy to GitHub ----------
 
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
@@ -405,7 +413,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (using huggingface_hub) – FIXED ----------
+# ---------- Deploy to Hugging Face (v0.3 – supports Flask, Gradio, Streamlit) ----------
 
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
@@ -419,7 +427,7 @@ def deploy_hf():
         if not repo_full_name:
             return jsonify({"error": "repo_full_name is required"}), 400
 
-        # ✅ FIX: handle names with or without slash
+        # Handle names with or without slash
         if "/" in repo_full_name:
             raw_space_name = data.get("space_name", repo_full_name.split("/")[1])
         else:
@@ -429,24 +437,94 @@ def deploy_hf():
         sdk = data.get("sdk", "streamlit")
         files = data.get("files", {})
 
-        # Auto-detect SDK
+        # Auto‑detect framework from code
+        framework = None
         for filename, content in files.items():
-            lower = content.lower()
-            if filename.endswith(".py") and ("app" in filename.lower() or "main" in filename.lower()):
-                if "gradio" in lower: sdk = "gradio"; break
-                if "streamlit" in lower: sdk = "streamlit"; break
-                if "flask" in lower: sdk = "docker"; break
-        for filename, content in files.items():
-            if filename == "requirements.txt":
+            if filename.endswith(".py"):
                 lower = content.lower()
-                if "gradio" in lower and sdk != "docker": sdk = "gradio"
-                elif "streamlit" in lower and sdk != "docker": sdk = "streamlit"
-                elif "flask" in lower: sdk = "docker"
-                break
+                if "flask" in lower:
+                    framework = "flask"
+                    break
+                elif "gradio" in lower:
+                    framework = "gradio"
+                    break
+                elif "streamlit" in lower:
+                    framework = "streamlit"
+                    break
 
-        if sdk not in ("gradio", "streamlit", "docker", "static"):
+        # Override SDK based on detection
+        if framework == "flask":
+            sdk = "docker"
+        elif framework == "gradio":
+            sdk = "gradio"
+        elif framework == "streamlit":
             sdk = "streamlit"
 
+        # ----- Framework‑specific fixes -----
+        if sdk == "docker":   # Flask
+            # Ensure requirements.txt has flask + huggingface_hub
+            if "requirements.txt" not in files:
+                files["requirements.txt"] = "flask\nhuggingface_hub\n"
+            else:
+                req = files["requirements.txt"]
+                if "flask" not in req.lower():
+                    req += "\nflask\n"
+                if "huggingface_hub" not in req.lower():
+                    req += "\nhuggingface_hub\n"
+                files["requirements.txt"] = req
+
+            # Inject Dockerfile if missing
+            if "Dockerfile" not in files:
+                files["Dockerfile"] = """FROM python:3.9-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+CMD ["python", "app.py"]
+""".strip()
+
+            # Patch Flask to listen on 0.0.0.0:7860
+            for fname, content in files.items():
+                if fname.endswith(".py") and "app.run" in content:
+                    if "port=7860" not in content.lower():
+                        new = content.replace("app.run()", "app.run(host='0.0.0.0', port=7860)")
+                        new = new.replace("app.run(debug=True)", "app.run(host='0.0.0.0', port=7860, debug=True)")
+                        files[fname] = new
+
+        elif sdk == "gradio":
+            # Ensure requirements.txt has gradio + huggingface_hub
+            if "requirements.txt" not in files:
+                files["requirements.txt"] = "gradio\nhuggingface_hub\n"
+            else:
+                req = files["requirements.txt"]
+                if "gradio" not in req.lower():
+                    req += "\ngradio\n"
+                if "huggingface_hub" not in req.lower():
+                    req += "\nhuggingface_hub\n"
+                files["requirements.txt"] = req
+
+            # Patch Gradio launch to use correct host/port
+            for fname, content in files.items():
+                if fname.endswith(".py") and "launch" in content:
+                    if "server_name" not in content and "server_port" not in content:
+                        new = content.replace(".launch()", ".launch(server_name='0.0.0.0', server_port=7860)")
+                        new = new.replace(".launch(", ".launch(server_name='0.0.0.0', server_port=7860, ")
+                        files[fname] = new
+
+        elif sdk == "streamlit":
+            # Ensure requirements.txt has streamlit + huggingface_hub
+            if "requirements.txt" not in files:
+                files["requirements.txt"] = "streamlit\nhuggingface_hub\n"
+            else:
+                req = files["requirements.txt"]
+                if "streamlit" not in req.lower():
+                    req += "\nstreamlit\n"
+                if "huggingface_hub" not in req.lower():
+                    req += "\nhuggingface_hub\n"
+                files["requirements.txt"] = req
+            # Streamlit does not need port patching – HF handles it automatically
+
+        # ----- HF API interaction -----
         if not HF_API_TOKEN:
             return jsonify({"error": "HF_API_TOKEN not configured on server"}), 500
 
@@ -459,6 +537,8 @@ def deploy_hf():
             return jsonify({"error": f"HF token invalid or network error: {str(e)}"}), 500
 
         repo_id = f"{hf_username}/{space_name}"
+        if sdk not in ("gradio", "streamlit", "docker", "static"):
+            sdk = "streamlit"  # fallback
 
         if not repo_exists(repo_id, repo_type="space", token=HF_API_TOKEN):
             try:
@@ -467,7 +547,7 @@ def deploy_hf():
             except Exception as e:
                 return jsonify({"error": f"Failed to create Space: {str(e)}"}), 500
 
-        # Upload files
+        # Upload all files
         for filepath, content in files.items():
             file_obj = io.BytesIO(content.encode("utf-8"))
             try:
@@ -499,7 +579,7 @@ def deploy_hf():
 
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "0.4"})
+    return jsonify({"status": "GrishteSync backend running", "version": "0.3"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
