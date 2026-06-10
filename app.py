@@ -299,6 +299,8 @@ def generate():
 # ---------- Deploy to GitHub (SHA fix) ----------
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
+    import time  # Add at the top of the function
+    
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("token "):
         return jsonify({"error": "Missing GitHub token"}), 401
@@ -322,16 +324,30 @@ def deploy():
                                     json={"name": repo_name, "private": False, "auto_init": True})
         if create_resp.status_code not in [200, 201]:
             return jsonify({"error": f"Failed to create repo: {create_resp.text}"}), 500
+        
+        # Wait for GitHub to finish initializing the repo
+        time.sleep(3)
 
     repo_info = requests.get(repo_url, headers=headers).json()
     default_branch = repo_info.get("default_branch", "main")
 
-    # Create feature branch
+    # Create feature branch (with retry)
     branch_name = f"agent/feature-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
-    ref_url = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs/heads/{default_branch}"
-    ref_resp = requests.get(ref_url, headers=headers)
-    if ref_resp.status_code != 200:
-        return jsonify({"error": "Failed to read default branch ref"}), 500
+    
+    ref_resp = None
+    for attempt in range(5):
+        ref_url = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs/heads/{default_branch}"
+        ref_resp = requests.get(ref_url, headers=headers)
+        if ref_resp.status_code == 200:
+            break
+        time.sleep(2)
+    
+    if not ref_resp or ref_resp.status_code != 200:
+        return jsonify({
+            "error": "Failed to read default branch ref after retries.",
+            "details": ref_resp.text if ref_resp else "No response"
+        }), 500
+
     sha = ref_resp.json()["object"]["sha"]
     new_ref_data = {"ref": f"refs/heads/{branch_name}", "sha": sha}
     create_ref = requests.post(f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs", headers=headers, json=new_ref_data)
@@ -392,7 +408,6 @@ def deploy():
         "branch": branch_name,
         "pr_url": pr_url
     })
-
 # ---------- Hugging Face Deploy (better error handling) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
