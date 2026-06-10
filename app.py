@@ -59,7 +59,7 @@ def github_callback():
         return jsonify({"error": "GitHub token error", "details": data}), 500
     return redirect(f"{FRONTEND_URL}?token={data['access_token']}")
 
-# ---------- Hugging Face OAuth (FIXED) ----------
+# ---------- Hugging Face OAuth  ----------
 @app.route("/hf/login")
 def hf_login():
     params = {
@@ -72,7 +72,6 @@ def hf_login():
     return redirect(f"{HF_AUTHORIZE_URL}?{urlencode(params)}")
 
 # 🔍 Debug mode – shows the full token exchange response
-####
 @app.route("/hf/callback")
 def hf_callback():
     code = request.args.get("code")
@@ -92,27 +91,6 @@ def hf_callback():
 
     access_token = data["access_token"]
     return redirect(f"{FRONTEND_URL}?hf_token={access_token}")
-####
-@app.route("/hf/callback")
-def hf_callback():
-    code = request.args.get("code")
-    if not code:
-        return jsonify({"error": "Missing code"}), 400
-
-    payload = {
-        "client_id": HF_CLIENT_ID,
-        "client_secret": HF_CLIENT_SECRET,
-        "code": code,
-        "grant_type": "authorization_code",
-        "redirect_uri": f"{request.host_url.rstrip('/')}/hf/callback"
-    }
-    resp = requests.post(HF_TOKEN_URL, data=payload)
-    return jsonify({
-        "debug_sent": payload,
-        "response_status": resp.status_code,
-        "response_body": resp.json()
-    })
-
 # ---------- AI Generation (unchanged) ----------
 @app.route("/api/generate", methods=["POST"])
 def generate():
