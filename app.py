@@ -4,13 +4,38 @@ import re
 import json
 import base64
 import requests
-from flask import Flask, request, jsonify, redirect
+from flask import Flask, request, jsonify, redirect, make_response
 from flask_cors import CORS
 from urllib.parse import urlencode
 import datetime
 
 app = Flask(__name__)
-CORS(app)
+
+# Allow all origins explicitly
+CORS(app, resources={r"/*": {
+    "origins": "*",
+    "allow_headers": ["Content-Type", "Authorization", "HF-Authorization"],
+    "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+}})
+
+# Handle OPTIONS preflight globally
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = make_response()
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, HF-Authorization"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.status_code = 200
+        return response
+
+# Also add after_request to ensure headers on every response
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, HF-Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    return response
 
 # ---------- Configuration ----------
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
