@@ -110,11 +110,16 @@ def generate():
         "The user will give a description of the app they want. "
         "If the prompt is empty or meaningless, generate a simple Gradio or Streamlit app that displays the prompt text in a nice card. "
         "Otherwise, build the requested app. "
-        "Return exactly a valid JSON object with a key 'files' mapping filenames to file contents. "
-        "CRITICAL: The JSON must be valid. Every string must use double quotes. No trailing commas. "
-        "Escape all double quotes inside strings with backslash. Use \\n for newlines inside code strings. "
-        "Do not wrap the JSON in markdown code fences. Do not add any text before or after the JSON.\n\n"
-        "Important rules:\n"
+        "YOU MUST RETURN ONLY A VALID JSON OBJECT. No markdown, no explanations, no code fences. Just pure JSON.\n\n"
+        "Format: {\"files\": {\"filename.py\": \"code here\", \"filename2.txt\": \"content here\"}}\n\n"
+        "CRITICAL RULES FOR VALID JSON:\n"
+        "- Use double quotes for all keys and string values\n"
+        "- Escape any double quotes inside strings with backslash: \\\"\n"
+        "- Use \\n for newlines inside code strings\n"
+        "- No trailing commas\n"
+        "- No single quotes for strings\n"
+        "- The response must start with { and end with }\n\n"
+        "Important watermark rules:\n"
         "1. Every Python file must start with this exact comment:\n"
         "# Created with GrishteSync\n"
         "# https://suryasticsai.github.io/GrishteSync\n"
@@ -122,17 +127,15 @@ def generate():
         "2. The main app file (app.py) must include a visible footer that shows:\n"
         "   'Made with GrishteSync | Suryasticsai | suryasticsai@gmail.com'\n"
         "   and a link to https://suryasticsai.github.io/GrishteSync.\n"
-        "   For Streamlit, use st.markdown() or similar; for Gradio, gr.HTML() or similar.\n"
-        "3. The main app must also show the GrishteSync logo as a header or footer image.\n"
-        "   Use this exact URL for the image: https://i.ibb.co/RGmb4FKk/1781072041102.png\n"
+        "3. The main app must show the GrishteSync logo as a header or footer image.\n"
+        "   Use this exact URL: https://i.ibb.co/RGmb4FKk/1781072041102.png\n"
         "   For Streamlit: st.image('https://i.ibb.co/RGmb4FKk/1781072041102.png', width=200)\n"
         "   For Gradio: gr.HTML('<img src=\"https://i.ibb.co/RGmb4FKk/1781072041102.png\" width=\"200\">')\n"
-        "   Place it above the title or in the footer, together with the watermark text.\n"
-        "4. The README.md file must contain a 'Built with GrishteSync' section with:\n"
-        "   - Link to the author's GitHub: https://github.com/suryasticsai\n"
+        "4. The README.md must contain a 'Built with GrishteSync' section with:\n"
+        "   - GitHub: https://github.com/suryasticsai\n"
         "   - LinkedIn: https://linkedin.com/in/suryasticsai\n"
         "   - Email: suryasticsai@gmail.com\n"
-        "   - The logo image: ![GrishteSync Logo](https://i.ibb.co/RGmb4FKk/1781072041102.png)\n"
+        "   - Logo: ![GrishteSync Logo](https://i.ibb.co/RGmb4FKk/1781072041102.png)\n"
         "5. Include a requirements.txt with all dependencies.\n"
         "6. For a meaningless prompt, create a minimal app that simply shows the user's input text."
     )
@@ -162,34 +165,37 @@ def generate():
         except Exception as e:
             return jsonify({"error": f"Error fetching repo: {str(e)}"}), 500
 
-    try:
+    # Helper function to call Groq
+    def call_groq(messages_list):
         resp = requests.post(
             GROQ_API_URL,
             headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-            json={"model": MODEL_NAME, "messages": messages, "temperature": 0.3}
+            json={"model": MODEL_NAME, "messages": messages_list, "temperature": 0.3}
         )
         resp.raise_for_status()
-        ai_content = resp.json()["choices"][0]["message"]["content"].strip()
+        return resp.json()["choices"][0]["message"]["content"].strip()
 
-        # --- Robust JSON extraction and repair ---
+    # Helper to parse AI response
+    def parse_ai_response(ai_content):
         # Remove markdown code fences
         ai_content = re.sub(r'^```(?:json)?\s*', '', ai_content.strip())
         ai_content = re.sub(r'\s*```$', '', ai_content.strip())
         
-        # Try to find JSON object boundaries
+        # Find JSON boundaries
         start_idx = ai_content.find('{')
         end_idx = ai_content.rfind('}')
         
         if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
             ai_content = ai_content[start_idx:end_idx + 1]
+        else:
+            return None, "No JSON object found"
         
-        # Fix common JSON errors
-        # 1. Remove trailing commas before closing braces/brackets
+        # Fix trailing commas
         ai_content = re.sub(r',\s*}', '}', ai_content)
         ai_content = re.sub(r',\s*]', ']', ai_content)
         
-        # 2. Fix unescaped newlines inside strings
-        def fix_newlines_in_strings(text):
+        # Fix unescaped newlines in strings
+        def fix_newlines(text):
             result = []
             in_string = False
             escape_next = False
@@ -216,45 +222,70 @@ def generate():
                     result.append(char)
             return ''.join(result)
         
-        ai_content = fix_newlines_in_strings(ai_content)
+        ai_content = fix_newlines(ai_content)
         
-        # 3. Try multiple parsing attempts
-        generated = None
+        # Try parsing
         errors = []
         
-        # Attempt 1: Direct JSON parse
         try:
-            generated = json.loads(ai_content)
+            return json.loads(ai_content), None
         except json.JSONDecodeError as e1:
-            errors.append(f"Attempt 1: {str(e1)}")
+            errors.append(f"JSON parse: {str(e1)}")
             
-            # Attempt 2: Try ast.literal_eval
             try:
                 import ast
-                generated = ast.literal_eval(ai_content)
-                if not isinstance(generated, dict):
-                    generated = None
-                    raise ValueError("Not a dict")
+                result = ast.literal_eval(ai_content)
+                if isinstance(result, dict):
+                    return result, None
+                return None, "AST result not a dict"
             except Exception as e2:
-                errors.append(f"Attempt 2: {str(e2)}")
+                errors.append(f"AST parse: {str(e2)}")
                 
-                # Attempt 3: Fix unbalanced braces
                 try:
                     open_braces = ai_content.count('{')
                     close_braces = ai_content.count('}')
+                    fixed = ai_content
                     if open_braces > close_braces:
-                        ai_content += '}' * (open_braces - close_braces)
+                        fixed += '}' * (open_braces - close_braces)
                     elif close_braces > open_braces:
-                        ai_content = '{' * (close_braces - open_braces) + ai_content
-                    generated = json.loads(ai_content)
+                        fixed = '{' * (close_braces - open_braces) + fixed
+                    result = json.loads(fixed)
+                    return result, None
                 except Exception as e3:
-                    errors.append(f"Attempt 3: {str(e3)}")
+                    errors.append(f"Brace fix: {str(e3)}")
         
+        return None, "; ".join(errors)
+
+    try:
+        # First attempt
+        ai_content = call_groq(messages)
+        generated, error = parse_ai_response(ai_content)
+        
+        # If first attempt fails, ask Groq to fix it
+        if generated is None:
+            # Add the failed response and ask for correction
+            messages.append({"role": "assistant", "content": ai_content})
+            messages.append({
+                "role": "user", 
+                "content": "Your response was not valid JSON. Please output ONLY a valid JSON object with the 'files' key. Start with { and end with }. No markdown, no explanations."
+            })
+            
+            try:
+                ai_content_retry = call_groq(messages)
+                generated, error = parse_ai_response(ai_content_retry)
+            except Exception as retry_error:
+                return jsonify({
+                    "error": "Retry failed",
+                    "first_response": ai_content[:500],
+                    "retry_error": str(retry_error)
+                }), 500
+        
+        # If still failing, return debug info
         if generated is None:
             return jsonify({
-                "error": "Failed to parse AI response as JSON after multiple attempts.",
-                "raw_response": ai_content[:1000],
-                "parse_errors": errors
+                "error": f"Failed to parse AI response after retry: {error}",
+                "first_response": ai_content[:1000],
+                "parse_error": error
             }), 500
 
         if "files" not in generated:
