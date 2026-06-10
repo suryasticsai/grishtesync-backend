@@ -1,4 +1,5 @@
-# GrishteSync v0.3 – AI Python App Builder (Flask/Gradio/Streamlit) + GitHub/HF Deploy
+# GrishteSync v0.3.1 – AI Python App Builder (Flask/Gradio/Streamlit) + GitHub/HF Deploy
+# Fixed: Gradio launch arguments (removed enable_queue, inline, show_error)
 import os
 import re
 import json
@@ -153,7 +154,7 @@ def generate():
         "- If the user asks for a data dashboard or simple interactive app → use Streamlit.\n"
         "- If the user asks for a traditional website, API, or backend → use Flask.\n"
         "- For Flask: include app.run(host='0.0.0.0', port=7860) at the end.\n"
-        "- For Gradio: launch with demo.launch(server_name='0.0.0.0', server_port=7860).\n"
+        "- For Gradio: launch with demo.launch(server_name='0.0.0.0', server_port=7860). DO NOT add enable_queue, inline, or show_error.\n"
         "- For Streamlit: no special port needed, just write the script.\n\n"
         "REQUIREMENTS.TXT:\n"
         "- Always include a requirements.txt with the necessary packages (flask, gradio, or streamlit).\n"
@@ -413,7 +414,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (v0.3 – supports Flask, Gradio, Streamlit) ----------
+# ---------- Deploy to Hugging Face (v0.3.1 – fixed Gradio launch arguments) ----------
 
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
@@ -503,13 +504,29 @@ CMD ["python", "app.py"]
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
 
-            # Patch Gradio launch to use correct host/port
+            # Patch Gradio launch – remove unsupported args (enable_queue, inline, show_error) and add server_name/port
             for fname, content in files.items():
                 if fname.endswith(".py") and "launch" in content:
-                    if "server_name" not in content and "server_port" not in content:
-                        new = content.replace(".launch()", ".launch(server_name='0.0.0.0', server_port=7860)")
-                        new = new.replace(".launch(", ".launch(server_name='0.0.0.0', server_port=7860, ")
-                        files[fname] = new
+                    # Remove problematic arguments
+                    new_content = content
+                    # Remove enable_queue, inline, show_error (with or without values)
+                    new_content = re.sub(r'enable_queue\s*=\s*True\s*,?\s*', '', new_content)
+                    new_content = re.sub(r'enable_queue\s*=\s*False\s*,?\s*', '', new_content)
+                    new_content = re.sub(r'inline\s*=\s*False\s*,?\s*', '', new_content)
+                    new_content = re.sub(r'inline\s*=\s*True\s*,?\s*', '', new_content)
+                    new_content = re.sub(r'show_error\s*=\s*False\s*,?\s*', '', new_content)
+                    new_content = re.sub(r'show_error\s*=\s*True\s*,?\s*', '', new_content)
+                    
+                    # Ensure server_name and server_port are present
+                    if "server_name" not in new_content:
+                        new_content = new_content.replace(".launch(", ".launch(server_name='0.0.0.0', server_port=7860, ")
+                    elif "server_port" not in new_content:
+                        new_content = new_content.replace(".launch(", ".launch(server_port=7860, ")
+                    
+                    # Clean up any double commas or trailing commas
+                    new_content = re.sub(r',\s*,', ',', new_content)
+                    new_content = re.sub(r',\s*\)', ')', new_content)
+                    files[fname] = new_content
 
         elif sdk == "streamlit":
             # Ensure requirements.txt has streamlit + huggingface_hub
@@ -579,7 +596,7 @@ CMD ["python", "app.py"]
 
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "0.3"})
+    return jsonify({"status": "GrishteSync backend running", "version": "0.3.1"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
