@@ -1,4 +1,4 @@
-#GrishteSync v0.1
+# GrishteSync v0.1
 import os
 import re
 import json
@@ -265,7 +265,7 @@ def generate():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---------- Deploy to GitHub ----------
+# ---------- Deploy to GitHub (SHA fix) ----------
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
     auth_header = request.headers.get("Authorization")
@@ -283,6 +283,7 @@ def deploy():
         return jsonify({"error": "Invalid token"}), 401
     username = user_resp.json()["login"]
 
+    # Create or get repo
     repo_url = f"{GITHUB_API_URL}/repos/{username}/{repo_name}"
     check = requests.get(repo_url, headers=headers)
     if check.status_code != 200:
@@ -294,6 +295,7 @@ def deploy():
     repo_info = requests.get(repo_url, headers=headers).json()
     default_branch = repo_info.get("default_branch", "main")
 
+    # Create feature branch
     branch_name = f"agent/feature-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
     ref_url = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs/heads/{default_branch}"
     ref_resp = requests.get(ref_url, headers=headers)
@@ -305,6 +307,7 @@ def deploy():
     if create_ref.status_code != 201:
         return jsonify({"error": f"Failed to create branch: {create_ref.text}"}), 500
 
+    # Push files
     for filepath, content in files.items():
         encoded = base64.b64encode(content.encode()).decode()
         api_path = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/contents/{filepath}"
@@ -314,10 +317,22 @@ def deploy():
             "content": encoded,
             "branch": branch_name
         }
+        # Check if file exists on THIS branch to get SHA
+        file_check = requests.get(f"{api_path}?ref={branch_name}", headers=headers)
+        if file_check.status_code == 200:
+            existing_sha = file_check.json().get("sha")
+            if existing_sha:
+                payload["sha"] = existing_sha
+        
         put_resp = requests.put(api_path, headers=headers, json=payload)
         if put_resp.status_code not in [200, 201]:
-            return jsonify({"error": f"Push failed for {filepath}: {put_resp.text}"}), 500
+            return jsonify({
+                "error": f"Push failed for {filepath}",
+                "status": put_resp.status_code,
+                "details": put_resp.text
+            }), 500
 
+    # Create PR
     custom_description = data.get("pr_description")
     if custom_description:
         pr_body = custom_description
@@ -347,7 +362,7 @@ def deploy():
         "pr_url": pr_url
     })
 
-# ---------- Hugging Face Deploy ----------
+# ---------- Hugging Face Deploy (better error handling) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     auth_header = request.headers.get("Authorization")
@@ -368,28 +383,69 @@ def deploy_hf():
     if not repo_full_name:
         return jsonify({"error": "repo_full_name required"}), 400
 
-    hf_user_resp = requests.get(f"{HF_API_URL}/whoami", headers={"Authorization": f"Bearer {hf_token}"})
-    if hf_user_resp.status_code != 200:
-        return jsonify({"error": "Invalid Hugging Face token"}), 401
-    hf_username = hf_user_resp.json()["name"]
+    # Get Hugging Face username
+    try:
+        hf_user_resp = requests.get(f"{HF_API_URL}/whoami", headers={"Authorization": f"Bearer {hf_token}"})
+        if hf_user_resp.status_code != 200:
+            return jsonify({"error": f"Invalid Hugging Face token (status {hf_user_resp.status_code})"}), 401
+        hf_username = hf_user_resp.json()["name"]
+    except Exception as e:
+        return jsonify({"error": f"Failed to verify HF token: {str(e)}"}), 401
 
+    # Check if Space exists
     space_url = f"{HF_API_URL}/spaces/{hf_username}/{space_name}"
     check = requests.get(space_url)
-    if check.status_code != 200:
-        create_data = {"sdk": sdk, "hardware": "cpu-basic", "name": space_name, "private": False}
-        create_resp = requests.post(f"{HF_API_URL}/spaces", json=create_data, headers={"Authorization": f"Bearer {hf_token}"})
-        if create_resp.status_code not in [200, 201]:
-            return jsonify({"error": f"Failed to create Space: {create_resp.text}"}), 500
+    
+    if check.status_code == 404:
+        # Create Space
+        create_data = {
+            "sdk": sdk,
+            "hardware": "cpu-basic",
+            "name": space_name,
+            "private": False
+        }
+        try:
+            create_resp = requests.post(
+                f"{HF_API_URL}/spaces",
+                json=create_data,
+                headers={"Authorization": f"Bearer {hf_token}"}
+            )
+            if create_resp.status_code not in [200, 201]:
+                return jsonify({
+                    "error": f"Failed to create Space (status {create_resp.status_code})",
+                    "details": create_resp.text[:500]
+                }), 500
+        except Exception as e:
+            return jsonify({"error": f"Space creation error: {str(e)}"}), 500
+    elif check.status_code != 200:
+        return jsonify({
+            "error": f"Unexpected response checking Space (status {check.status_code})",
+            "details": check.text[:500]
+        }), 500
 
-    link_resp = requests.post(
-        f"{HF_API_URL}/spaces/{hf_username}/{space_name}/repo",
-        headers={"Authorization": f"Bearer {hf_token}"},
-        json={"repo_id": repo_full_name, "repo_type": "github", "oauth_token": github_token}
-    )
-    if link_resp.status_code not in [200, 201]:
-        return jsonify({"error": f"Failed to link repo: {link_resp.text}"}), 500
+    # Link GitHub repo to Space
+    try:
+        link_resp = requests.post(
+            f"{HF_API_URL}/spaces/{hf_username}/{space_name}/repo",
+            headers={"Authorization": f"Bearer {hf_token}"},
+            json={
+                "repo_id": repo_full_name,
+                "repo_type": "github",
+                "oauth_token": github_token
+            }
+        )
+        if link_resp.status_code not in [200, 201]:
+            return jsonify({
+                "error": f"Failed to link repo (status {link_resp.status_code})",
+                "details": link_resp.text[:500]
+            }), 500
+    except Exception as e:
+        return jsonify({"error": f"Repo linking error: {str(e)}"}), 500
 
-    return jsonify({"status": "success", "space_url": f"https://huggingface.co/spaces/{hf_username}/{space_name}"})
+    return jsonify({
+        "status": "success",
+        "space_url": f"https://huggingface.co/spaces/{hf_username}/{space_name}"
+    })
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
