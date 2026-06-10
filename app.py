@@ -72,6 +72,27 @@ def hf_login():
     return redirect(f"{HF_AUTHORIZE_URL}?{urlencode(params)}")
 
 # 🔍 Debug mode – shows the full token exchange response
+####
+@app.route("/hf/callback")
+def hf_callback():
+    code = request.args.get("code")
+    if not code:
+        return jsonify({"error": "Missing code"}), 400
+
+    resp = requests.post(HF_TOKEN_URL, data={
+        "client_id": HF_CLIENT_ID,
+        "client_secret": HF_CLIENT_SECRET,
+        "code": code,
+        "grant_type": "authorization_code",
+        "redirect_uri": f"{request.host_url.rstrip('/')}/hf/callback"
+    })
+    data = resp.json()
+    if "access_token" not in data:
+        return jsonify({"error": "HF token error", "details": data}), 500
+
+    access_token = data["access_token"]
+    return redirect(f"{FRONTEND_URL}?hf_token={access_token}")
+####
 @app.route("/hf/callback")
 def hf_callback():
     code = request.args.get("code")
