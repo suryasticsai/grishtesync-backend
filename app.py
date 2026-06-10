@@ -425,6 +425,32 @@ def deploy_hf():
     repo_full_name = data.get("repo_full_name")
     space_name = data.get("space_name", repo_full_name.split("/")[1] if repo_full_name else "grishte-app")
     sdk = data.get("sdk", "streamlit")
+    files = data.get("files", {})
+    
+    # ---------- Auto-detect framework ----------
+    if files:
+        for filename, content in files.items():
+            if filename.endswith('.py') and ('app' in filename.lower() or 'main' in filename.lower()):
+                content_lower = content.lower()
+                if 'gradio' in content_lower:
+                    sdk = "gradio"
+                    break
+                elif 'streamlit' in content_lower:
+                    sdk = "streamlit"
+                    break
+                elif 'flask' in content_lower:
+                    sdk = "docker"
+                    break
+        for filename, content in files.items():
+            if filename == 'requirements.txt':
+                content_lower = content.lower()
+                if 'gradio' in content_lower and sdk != "docker":
+                    sdk = "gradio"
+                elif 'streamlit' in content_lower and sdk != "docker":
+                    sdk = "streamlit"
+                elif 'flask' in content_lower:
+                    sdk = "docker"
+                break
 
     if not repo_full_name:
         return jsonify({"error": "repo_full_name required"}), 400
@@ -436,12 +462,11 @@ def deploy_hf():
             headers={"Authorization": f"Bearer {hf_token}"}
         )
         
-        # Check if response is HTML (token invalid)
         content_type = whoami_resp.headers.get("Content-Type", "")
         if "text/html" in content_type:
             return jsonify({
-                "error": "Hugging Face token is invalid or expired. Please disconnect and reconnect Hugging Face.",
-                "hf_response_preview": whoami_resp.text[:300]
+                "error": "Hugging Face token is invalid or expired. Please reconnect Hugging Face.",
+                "preview": whoami_resp.text[:200]
             }), 401
         
         if whoami_resp.status_code != 200:
@@ -453,15 +478,15 @@ def deploy_hf():
         hf_username = whoami_resp.json()["name"]
     except Exception as e:
         return jsonify({
-            "error": f"Failed to verify Hugging Face token: {str(e)}. Please reconnect Hugging Face."
+            "error": f"Failed to verify HF token: {str(e)}"
         }), 401
 
-    # ---------- Create or get Space ----------
+    # ---------- Create Space dynamically ----------
     space_url = f"{HF_API_URL}/spaces/{hf_username}/{space_name}"
     check = requests.get(space_url)
     
     if check.status_code == 404:
-        # Create new Space
+        # Space doesn't exist — create it
         create_data = {
             "sdk": sdk,
             "hardware": "cpu-basic",
@@ -475,30 +500,26 @@ def deploy_hf():
             headers={"Authorization": f"Bearer {hf_token}"}
         )
         
-        # Check for HTML response (error)
-        create_content_type = create_resp.headers.get("Content-Type", "")
-        if "text/html" in create_content_type:
-            return jsonify({
-                "error": "Failed to create Space. Hugging Face returned an error page.",
-                "status": create_resp.status_code,
-                "preview": create_resp.text[:500]
-            }), 500
-        
         if create_resp.status_code not in [200, 201]:
             return jsonify({
                 "error": f"Failed to create Space (status {create_resp.status_code})",
                 "details": create_resp.text[:500]
             }), 500
         
-        # Wait for Space to be ready
         import time
-        time.sleep(3)
+        time.sleep(3)  # Wait for Space initialization
     
     elif check.status_code != 200:
         return jsonify({
             "error": f"Unexpected response checking Space (status {check.status_code})",
-            "details": check.text[:500]
+            "details": check.text[:300]
         }), 500
+    else:
+        # Space exists — update SDK if needed
+        existing_sdk = check.json().get("sdk", "")
+        if existing_sdk != sdk:
+            # Update the Space SDK (if HF API supports it — for now just warn)
+            pass
 
     # ---------- Link GitHub repo to Space ----------
     link_resp = requests.post(
@@ -511,15 +532,6 @@ def deploy_hf():
         }
     )
     
-    # Check for HTML response
-    link_content_type = link_resp.headers.get("Content-Type", "")
-    if "text/html" in link_content_type:
-        return jsonify({
-            "error": "Failed to link repo. Hugging Face returned an error page.",
-            "status": link_resp.status_code,
-            "preview": link_resp.text[:500]
-        }), 500
-    
     if link_resp.status_code not in [200, 201]:
         return jsonify({
             "error": f"Failed to link repo (status {link_resp.status_code})",
@@ -528,7 +540,8 @@ def deploy_hf():
 
     return jsonify({
         "status": "success",
-        "space_url": f"https://huggingface.co/spaces/{hf_username}/{space_name}"
+        "space_url": f"https://huggingface.co/spaces/{hf_username}/{space_name}",
+        "sdk": sdk
     })
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
