@@ -1,24 +1,25 @@
-# GrishteSync v0.1
+# GrishteSync v0.2 - Full Fixed Backend
 import os
 import re
 import json
 import base64
+import time
+import traceback
+import datetime
 import requests
 from flask import Flask, request, jsonify, redirect, make_response
 from flask_cors import CORS
 from urllib.parse import urlencode
-import datetime
 
 app = Flask(__name__)
 
-# Allow all origins explicitly
+# ---------- CORS ----------
 CORS(app, resources={r"/*": {
     "origins": "*",
     "allow_headers": ["Content-Type", "Authorization", "HF-Authorization"],
     "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 }})
 
-# Handle OPTIONS preflight globally
 @app.before_request
 def handle_preflight():
     if request.method == "OPTIONS":
@@ -29,7 +30,6 @@ def handle_preflight():
         response.status_code = 200
         return response
 
-# Also add after_request to ensure headers on every response
 @app.after_request
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
@@ -38,24 +38,46 @@ def add_cors_headers(response):
     return response
 
 # ---------- Configuration ----------
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL_NAME = "llama-3.3-70b-versatile"
+GROQ_API_KEY       = os.environ.get("GROQ_API_KEY")
+GROQ_API_URL       = "https://api.groq.com/openai/v1/chat/completions"
+MODEL_NAME         = "llama-3.3-70b-versatile"
 
-GITHUB_CLIENT_ID = os.environ.get("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_ID     = os.environ.get("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET")
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://suryasticsai.github.io/GrishteSync/")
+FRONTEND_URL         = os.environ.get("FRONTEND_URL", "https://suryasticsai.github.io/GrishteSync/")
 GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
-GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
-GITHUB_API_URL = "https://api.github.com"
+GITHUB_TOKEN_URL     = "https://github.com/login/oauth/access_token"
+GITHUB_API_URL       = "https://api.github.com"
 
-HF_CLIENT_ID = os.environ.get("HF_CLIENT_ID")
-HF_CLIENT_SECRET = os.environ.get("HF_CLIENT_SECRET")
-HF_AUTHORIZE_URL = "https://huggingface.co/oauth/authorize"
-HF_TOKEN_URL = "https://huggingface.co/oauth/token"
-HF_API_URL = "https://huggingface.co/api"
+HF_CLIENT_ID      = os.environ.get("HF_CLIENT_ID")
+HF_CLIENT_SECRET  = os.environ.get("HF_CLIENT_SECRET")
+HF_AUTHORIZE_URL  = "https://huggingface.co/oauth/authorize"
+HF_TOKEN_URL      = "https://huggingface.co/oauth/token"
+HF_API_URL        = "https://huggingface.co/api"
+
+# ---------- Helpers ----------
+
+def safe_json(resp):
+    """Safely parse JSON from a requests.Response; returns (dict_or_none, error_str_or_none)."""
+    ct = resp.headers.get("Content-Type", "")
+    if "text/html" in ct:
+        return None, f"Got HTML instead of JSON (status {resp.status_code}): {resp.text[:200]}"
+    try:
+        return resp.json(), None
+    except Exception as e:
+        return None, f"JSON parse failed (status {resp.status_code}): {resp.text[:200]} | {str(e)}"
+
+
+def sanitize_space_name(name):
+    """Sanitize a string to be a valid HF Space / repo name."""
+    name = re.sub(r'[^a-zA-Z0-9-]', '-', name)
+    name = re.sub(r'-+', '-', name)
+    name = name.strip('-')
+    return name[:96] or "grishte-app"
+
 
 # ---------- GitHub OAuth ----------
+
 @app.route("/auth/login")
 def github_login():
     params = {
@@ -66,25 +88,36 @@ def github_login():
     }
     return redirect(f"{GITHUB_AUTHORIZE_URL}?{urlencode(params)}")
 
+
 @app.route("/auth/callback")
 def github_callback():
     code = request.args.get("code")
     if not code:
         return jsonify({"error": "Missing code"}), 400
-    resp = requests.post(GITHUB_TOKEN_URL,
-        headers={"Accept": "application/json"},
-        data={
-            "client_id": GITHUB_CLIENT_ID,
-            "client_secret": GITHUB_CLIENT_SECRET,
-            "code": code,
-            "redirect_uri": f"{request.host_url.rstrip('/')}/auth/callback"
-        })
-    data = resp.json()
-    if "access_token" not in data:
-        return jsonify({"error": "GitHub token error", "details": data}), 500
-    return redirect(f"{FRONTEND_URL}?token={data['access_token']}")
+    try:
+        resp = requests.post(
+            GITHUB_TOKEN_URL,
+            headers={"Accept": "application/json"},
+            data={
+                "client_id": GITHUB_CLIENT_ID,
+                "client_secret": GITHUB_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": f"{request.host_url.rstrip('/')}/auth/callback"
+            },
+            timeout=15
+        )
+        data, err = safe_json(resp)
+        if err:
+            return jsonify({"error": "GitHub token exchange failed", "details": err}), 500
+        if "access_token" not in data:
+            return jsonify({"error": "GitHub token error", "details": data}), 500
+        return redirect(f"{FRONTEND_URL}?token={data['access_token']}")
+    except Exception as e:
+        return jsonify({"error": "GitHub OAuth exception", "details": str(e), "trace": traceback.format_exc()}), 500
+
 
 # ---------- Hugging Face OAuth ----------
+
 @app.route("/hf/login")
 def hf_login():
     params = {
@@ -96,35 +129,48 @@ def hf_login():
     }
     return redirect(f"{HF_AUTHORIZE_URL}?{urlencode(params)}")
 
+
 @app.route("/hf/callback")
 def hf_callback():
     code = request.args.get("code")
     if not code:
         return jsonify({"error": "Missing code"}), 400
+    try:
+        resp = requests.post(
+            HF_TOKEN_URL,
+            data={
+                "client_id": HF_CLIENT_ID,
+                "client_secret": HF_CLIENT_SECRET,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": f"{request.host_url.rstrip('/')}/hf/callback"
+            },
+            timeout=15
+        )
+        data, err = safe_json(resp)
+        if err:
+            return jsonify({"error": "HF token exchange failed", "details": err}), 500
+        if "access_token" not in data:
+            return jsonify({"error": "HF token error", "details": data}), 500
+        return redirect(f"{FRONTEND_URL}?hf_token={data['access_token']}")
+    except Exception as e:
+        return jsonify({"error": "HF OAuth exception", "details": str(e), "trace": traceback.format_exc()}), 500
 
-    resp = requests.post(HF_TOKEN_URL, data={
-        "client_id": HF_CLIENT_ID,
-        "client_secret": HF_CLIENT_SECRET,
-        "code": code,
-        "grant_type": "authorization_code",
-        "redirect_uri": f"{request.host_url.rstrip('/')}/hf/callback"
-    })
-    data = resp.json()
-    if "access_token" not in data:
-        return jsonify({"error": "HF token error", "details": data}), 500
 
-    access_token = data["access_token"]
-    return redirect(f"{FRONTEND_URL}?hf_token={access_token}")
+# ---------- AI Generation ----------
 
-# ---------- AI Generation with robust JSON parser ----------
 @app.route("/api/generate", methods=["POST"])
 def generate():
-    data = request.get_json()
-    prompt = data.get("prompt", "").strip()
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Invalid or missing JSON body"}), 400
+
+    prompt        = data.get("prompt", "").strip()
     repo_full_name = data.get("repo")
-    user_token = None
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("token "):
+    user_token    = None
+
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("token "):
         user_token = auth_header.split(" ", 1)[1]
 
     if not prompt:
@@ -144,86 +190,83 @@ def generate():
         "- No trailing commas\n"
         "- No single quotes for strings\n"
         "- The response must start with { and end with }\n\n"
-        "Important watermark rules:\n"
-        "1. Every Python file must start with this exact comment:\n"
+        "Watermark rules:\n"
+        "1. Every Python file must start with:\n"
         "# Created with GrishteSync\n"
         "# https://suryasticsai.github.io/GrishteSync\n"
         "# Suryasticsai | suryasticsai@gmail.com\n"
-        "2. The main app file (app.py) must include a visible footer that shows:\n"
-        "   'Made with GrishteSync | Suryasticsai | suryasticsai@gmail.com'\n"
-        "   and a link to https://suryasticsai.github.io/GrishteSync.\n"
-        "3. The main app must show the GrishteSync logo as a header or footer image.\n"
-        "   Use this exact URL: https://i.ibb.co/RGmb4FKk/1781072041102.png\n"
-        "   For Streamlit: st.image('https://i.ibb.co/RGmb4FKk/1781072041102.png', width=200)\n"
-        "   For Gradio: gr.HTML('<img src=\"https://i.ibb.co/RGmb4FKk/1781072041102.png\" width=\"200\">')\n"
-        "4. The README.md must contain a 'Built with GrishteSync' section with:\n"
-        "   - GitHub: https://github.com/suryasticsai\n"
-        "   - LinkedIn: https://linkedin.com/in/suryasticsai\n"
-        "   - Email: suryasticsai@gmail.com\n"
-        "   - Logo: ![GrishteSync Logo](https://i.ibb.co/RGmb4FKk/1781072041102.png)\n"
-        "5. Include a requirements.txt with all dependencies.\n"
-        "6. For a meaningless prompt, create a minimal app that simply shows the user's input text."
+        "2. app.py must show footer: 'Made with GrishteSync | Suryasticsai | suryasticsai@gmail.com'\n"
+        "3. Show logo: https://i.ibb.co/RGmb4FKk/1781072041102.png\n"
+        "4. README.md must contain 'Built with GrishteSync' section.\n"
+        "5. Include requirements.txt with all dependencies.\n"
     )
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Build/update: {prompt}"}
+        {"role": "user",   "content": f"Build/update: {prompt}"}
     ]
 
+    # Optionally inject existing repo context
     if repo_full_name and user_token:
         try:
-            headers = {"Authorization": f"token {user_token}", "Accept": "application/vnd.github.v3+json"}
-            contents_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/contents"
-            contents_resp = requests.get(contents_url, headers=headers)
-            if contents_resp.status_code != 200:
-                return jsonify({"error": f"Failed to read repo: {contents_resp.text}"}), 500
-            repo_files = contents_resp.json()
-            existing_code = {}
-            for item in repo_files:
-                if item["type"] == "file" and item["size"] < 500000:
-                    file_content = requests.get(item["download_url"]).text
-                    existing_code[item["name"]] = file_content
-            context = "Current codebase (update it according to the prompt):\n"
-            for fname, content in existing_code.items():
-                context += f"\n--- {fname} ---\n{content}\n"
-            messages.insert(0, {"role": "system", "content": context + "\n" + system_prompt})
+            gh_headers = {
+                "Authorization": f"token {user_token}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+            contents_resp = requests.get(
+                f"{GITHUB_API_URL}/repos/{repo_full_name}/contents",
+                headers=gh_headers,
+                timeout=15
+            )
+            if contents_resp.status_code == 200:
+                repo_files = contents_resp.json()
+                existing_code = {}
+                for item in repo_files:
+                    if item["type"] == "file" and item.get("size", 0) < 500000:
+                        try:
+                            file_content = requests.get(item["download_url"], timeout=10).text
+                            existing_code[item["name"]] = file_content
+                        except Exception:
+                            pass
+                if existing_code:
+                    context = "Current codebase (update it according to the prompt):\n"
+                    for fname, content in existing_code.items():
+                        context += f"\n--- {fname} ---\n{content}\n"
+                    messages.insert(0, {"role": "system", "content": context})
         except Exception as e:
-            return jsonify({"error": f"Error fetching repo: {str(e)}"}), 500
+            print(f"[WARN] Could not fetch repo context: {e}", flush=True)
 
-    # Helper function to call Groq
-    def call_groq(messages_list):
+    def call_groq(msgs):
         resp = requests.post(
             GROQ_API_URL,
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-            json={"model": MODEL_NAME, "messages": messages_list, "temperature": 0.3}
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={"model": MODEL_NAME, "messages": msgs, "temperature": 0.3},
+            timeout=60
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"].strip()
+        result, err = safe_json(resp)
+        if err:
+            raise ValueError(f"Groq response parse error: {err}")
+        return result["choices"][0]["message"]["content"].strip()
 
-    # Helper to parse AI response
     def parse_ai_response(ai_content):
-        # Remove markdown code fences
         ai_content = re.sub(r'^```(?:json)?\s*', '', ai_content.strip())
         ai_content = re.sub(r'\s*```$', '', ai_content.strip())
-        
-        # Find JSON boundaries
+
         start_idx = ai_content.find('{')
-        end_idx = ai_content.rfind('}')
-        
-        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-            ai_content = ai_content[start_idx:end_idx + 1]
-        else:
-            return None, "No JSON object found"
-        
-        # Fix trailing commas
+        end_idx   = ai_content.rfind('}')
+        if start_idx == -1 or end_idx == -1 or end_idx <= start_idx:
+            return None, "No JSON object found in response"
+        ai_content = ai_content[start_idx:end_idx + 1]
+
         ai_content = re.sub(r',\s*}', '}', ai_content)
         ai_content = re.sub(r',\s*]', ']', ai_content)
-        
-        # Fix unescaped newlines in strings
+
         def fix_newlines(text):
-            result = []
-            in_string = False
-            escape_next = False
+            result, in_string, escape_next = [], False, False
             for char in text:
                 if escape_next:
                     result.append(char)
@@ -237,80 +280,72 @@ def generate():
                     in_string = not in_string
                     result.append(char)
                     continue
-                if in_string and char == '\n':
-                    result.append('\\n')
-                elif in_string and char == '\t':
-                    result.append('\\t')
-                elif in_string and char == '\r':
-                    result.append('')
+                if in_string:
+                    if char == '\n':   result.append('\\n')
+                    elif char == '\t': result.append('\\t')
+                    elif char == '\r': pass
+                    else:              result.append(char)
                 else:
                     result.append(char)
             return ''.join(result)
-        
+
         ai_content = fix_newlines(ai_content)
-        
-        # Try parsing
         errors = []
-        
+
         try:
             return json.loads(ai_content), None
         except json.JSONDecodeError as e1:
-            errors.append(f"JSON parse: {str(e1)}")
-            
-            try:
-                import ast
-                result = ast.literal_eval(ai_content)
-                if isinstance(result, dict):
-                    return result, None
-                return None, "AST result not a dict"
-            except Exception as e2:
-                errors.append(f"AST parse: {str(e2)}")
-                
-                try:
-                    open_braces = ai_content.count('{')
-                    close_braces = ai_content.count('}')
-                    fixed = ai_content
-                    if open_braces > close_braces:
-                        fixed += '}' * (open_braces - close_braces)
-                    elif close_braces > open_braces:
-                        fixed = '{' * (close_braces - open_braces) + fixed
-                    result = json.loads(fixed)
-                    return result, None
-                except Exception as e3:
-                    errors.append(f"Brace fix: {str(e3)}")
-        
-        return None, "; ".join(errors)
+            errors.append(f"json.loads: {e1}")
+
+        try:
+            import ast
+            result = ast.literal_eval(ai_content)
+            if isinstance(result, dict):
+                return result, None
+            errors.append("ast: result not a dict")
+        except Exception as e2:
+            errors.append(f"ast: {e2}")
+
+        try:
+            ob = ai_content.count('{')
+            cb = ai_content.count('}')
+            fixed = ai_content
+            if ob > cb: fixed += '}' * (ob - cb)
+            elif cb > ob: fixed = '{' * (cb - ob) + fixed
+            return json.loads(fixed), None
+        except Exception as e3:
+            errors.append(f"brace-fix: {e3}")
+
+        return None, " | ".join(errors)
 
     try:
-        # First attempt
         ai_content = call_groq(messages)
         generated, error = parse_ai_response(ai_content)
-        
-        # If first attempt fails, ask Groq to fix it
+
         if generated is None:
-            # Add the failed response and ask for correction
             messages.append({"role": "assistant", "content": ai_content})
             messages.append({
-                "role": "user", 
-                "content": "Your response was not valid JSON. Please output ONLY a valid JSON object with the 'files' key. Start with { and end with }. No markdown, no explanations."
+                "role": "user",
+                "content": (
+                    "Your previous response was not valid JSON. "
+                    "Output ONLY a valid JSON object with a 'files' key. "
+                    "Start with { and end with }. No markdown, no explanations."
+                )
             })
-            
             try:
-                ai_content_retry = call_groq(messages)
-                generated, error = parse_ai_response(ai_content_retry)
-            except Exception as retry_error:
+                ai_content = call_groq(messages)
+                generated, error = parse_ai_response(ai_content)
+            except Exception as re_err:
                 return jsonify({
-                    "error": "Retry failed",
-                    "first_response": ai_content[:500],
-                    "retry_error": str(retry_error)
+                    "error": "Retry call to Groq failed",
+                    "details": str(re_err)
                 }), 500
-        
-        # If still failing, return debug info
+
         if generated is None:
             return jsonify({
-                "error": f"Failed to parse AI response after retry: {error}",
-                "first_response": ai_content[:1000],
-                "parse_error": error
+                "error": "Failed to parse AI response after retry",
+                "parse_error": error,
+                "response_preview": ai_content[:800]
             }), 500
 
         if "files" not in generated:
@@ -319,313 +354,379 @@ def generate():
         return jsonify(generated)
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "error": "Generate endpoint exception",
+            "details": str(e),
+            "trace": traceback.format_exc()
+        }), 500
 
-# ---------- Deploy to GitHub (SHA fix) ----------
+
+# ---------- Deploy to GitHub ----------
+
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
-    import time
-    
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("token "):
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("token "):
         return jsonify({"error": "Missing GitHub token"}), 401
     user_token = auth_header.split(" ", 1)[1]
-    data = request.get_json()
+
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Invalid or missing JSON body"}), 400
+
     repo_name = data.get("repo_name")
-    files = data.get("files", {})
-    version = data.get("version", "0.0.0")
+    files     = data.get("files", {})
+    version   = data.get("version", "0.0.0")
 
-    headers = {"Authorization": f"token {user_token}", "Accept": "application/vnd.github.v3+json"}
-    user_resp = requests.get(f"{GITHUB_API_URL}/user", headers=headers)
-    if user_resp.status_code != 200:
-        return jsonify({"error": "Invalid token"}), 401
-    username = user_resp.json()["login"]
+    if not repo_name:
+        return jsonify({"error": "repo_name is required"}), 400
 
-    # Check if repo already exists FIRST
+    gh_headers = {
+        "Authorization": f"token {user_token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+
+    # Validate token + get username
+    try:
+        user_resp = requests.get(f"{GITHUB_API_URL}/user", headers=gh_headers, timeout=10)
+        user_data, err = safe_json(user_resp)
+        if err or user_resp.status_code != 200:
+            return jsonify({"error": "Invalid GitHub token", "details": err or user_data}), 401
+        username = user_data["login"]
+    except Exception as e:
+        return jsonify({"error": "GitHub user lookup failed", "details": str(e)}), 500
+
     repo_url = f"{GITHUB_API_URL}/repos/{username}/{repo_name}"
-    check = requests.get(repo_url, headers=headers)
-    
-    if check.status_code == 200:
-        # Repo already exists — no need to create
-        pass
-    elif check.status_code == 404:
-        # Repo doesn't exist — create it
-        create_resp = requests.post(
-            f"{GITHUB_API_URL}/user/repos",
-            headers=headers,
-            json={"name": repo_name, "private": False, "auto_init": True}
-        )
-        if create_resp.status_code not in [200, 201]:
+
+    # Create repo if needed
+    try:
+        check = requests.get(repo_url, headers=gh_headers, timeout=10)
+        if check.status_code == 404:
+            create_resp = requests.post(
+                f"{GITHUB_API_URL}/user/repos",
+                headers=gh_headers,
+                json={"name": repo_name, "private": False, "auto_init": True},
+                timeout=15
+            )
+            if create_resp.status_code not in [200, 201]:
+                detail, _ = safe_json(create_resp)
+                return jsonify({
+                    "error": f"Failed to create repo (status {create_resp.status_code})",
+                    "details": detail or create_resp.text[:300]
+                }), 500
+            time.sleep(3)
+        elif check.status_code != 200:
             return jsonify({
-                "error": f"Failed to create repo (status {create_resp.status_code})",
-                "details": create_resp.text[:500]
+                "error": f"Unexpected status checking repo: {check.status_code}",
+                "details": check.text[:300]
             }), 500
-        # Wait for GitHub to initialize the repo
-        time.sleep(3)
-    else:
-        return jsonify({
-            "error": f"Unexpected response checking repo (status {check.status_code})",
-            "details": check.text[:500]
-        }), 500
+    except Exception as e:
+        return jsonify({"error": "Repo check/create exception", "details": str(e)}), 500
 
     # Get default branch
-    repo_info = requests.get(repo_url, headers=headers).json()
-    default_branch = repo_info.get("default_branch", "main")
+    try:
+        repo_info, err = safe_json(requests.get(repo_url, headers=gh_headers, timeout=10))
+        if err:
+            return jsonify({"error": "Could not read repo info", "details": err}), 500
+        default_branch = repo_info.get("default_branch", "main")
+    except Exception as e:
+        return jsonify({"error": "Repo info fetch failed", "details": str(e)}), 500
 
-    # Create feature branch (with retry)
-    branch_name = f"agent/feature-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
-    
-    ref_resp = None
+    # Get SHA of default branch tip (retry up to 5x)
+    sha = None
     for attempt in range(5):
-        ref_url = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs/heads/{default_branch}"
-        ref_resp = requests.get(ref_url, headers=headers)
-        if ref_resp.status_code == 200:
-            break
+        try:
+            ref_resp = requests.get(
+                f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs/heads/{default_branch}",
+                headers=gh_headers,
+                timeout=10
+            )
+            if ref_resp.status_code == 200:
+                ref_data, err = safe_json(ref_resp)
+                if not err and ref_data:
+                    sha = ref_data["object"]["sha"]
+                    break
+        except Exception:
+            pass
         time.sleep(2)
-    
-    if not ref_resp or ref_resp.status_code != 200:
-        return jsonify({
-            "error": "Failed to read default branch ref after retries.",
-            "status": ref_resp.status_code if ref_resp else "No response",
-            "details": ref_resp.text[:300] if ref_resp else "No response"
-        }), 500
 
-    sha = ref_resp.json()["object"]["sha"]
-    new_ref_data = {"ref": f"refs/heads/{branch_name}", "sha": sha}
-    create_ref = requests.post(f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs", headers=headers, json=new_ref_data)
-    if create_ref.status_code != 201:
-        return jsonify({
-            "error": f"Failed to create branch (status {create_ref.status_code})",
-            "details": create_ref.text[:300]
-        }), 500
+    if not sha:
+        return jsonify({"error": "Failed to get branch SHA after 5 attempts"}), 500
+
+    # Create feature branch
+    branch_name = f"agent/feature-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+    try:
+        create_ref = requests.post(
+            f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs",
+            headers=gh_headers,
+            json={"ref": f"refs/heads/{branch_name}", "sha": sha},
+            timeout=10
+        )
+        if create_ref.status_code != 201:
+            detail, _ = safe_json(create_ref)
+            return jsonify({
+                "error": f"Failed to create branch (status {create_ref.status_code})",
+                "details": detail or create_ref.text[:300]
+            }), 500
+    except Exception as e:
+        return jsonify({"error": "Branch creation exception", "details": str(e)}), 500
 
     # Push files
     for filepath, content in files.items():
-        encoded = base64.b64encode(content.encode()).decode()
-        api_path = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/contents/{filepath}"
-        commit_msg = f"Update {filepath} via GrishteSync v{version}"
-        payload = {
-            "message": commit_msg,
-            "content": encoded,
-            "branch": branch_name
-        }
-        # Check if file exists on THIS branch to get SHA
-        file_check = requests.get(f"{api_path}?ref={branch_name}", headers=headers)
-        if file_check.status_code == 200:
-            existing_sha = file_check.json().get("sha")
-            if existing_sha:
-                payload["sha"] = existing_sha
-        
-        put_resp = requests.put(api_path, headers=headers, json=payload)
-        if put_resp.status_code not in [200, 201]:
-            return jsonify({
-                "error": f"Push failed for {filepath} (status {put_resp.status_code})",
-                "details": put_resp.text[:300]
-            }), 500
+        try:
+            encoded  = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+            api_path = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/contents/{filepath}"
+            payload  = {
+                "message": f"Update {filepath} via GrishteSync v{version}",
+                "content": encoded,
+                "branch":  branch_name
+            }
+            file_check = requests.get(f"{api_path}?ref={branch_name}", headers=gh_headers, timeout=10)
+            if file_check.status_code == 200:
+                fdata, _ = safe_json(file_check)
+                if fdata and fdata.get("sha"):
+                    payload["sha"] = fdata["sha"]
+
+            put_resp = requests.put(api_path, headers=gh_headers, json=payload, timeout=15)
+            if put_resp.status_code not in [200, 201]:
+                detail, _ = safe_json(put_resp)
+                return jsonify({
+                    "error": f"Push failed for {filepath} (status {put_resp.status_code})",
+                    "details": detail or put_resp.text[:300]
+                }), 500
+        except Exception as e:
+            return jsonify({"error": f"File push exception for {filepath}", "details": str(e)}), 500
 
     # Create PR
-    custom_description = data.get("pr_description")
-    if custom_description:
-        pr_body = custom_description
-    else:
-        pr_body = (
+    try:
+        custom_description = data.get("pr_description")
+        pr_body = custom_description if custom_description else (
             f"## 🌀 GrishteSync Automatic Pull Request\n\n"
             f"**Version:** v{version}\n\n"
             f"**Files changed:**\n" +
-            "\n".join([f"- {f}" for f in files.keys()]) + "\n\n"
-            f"*Created with [GrishteSync](https://suryasticsai.github.io/GrishteSync) | [Suryasticsai](https://github.com/suryasticsai) | suryasticsai@gmail.com*\n\n"
+            "\n".join([f"- `{f}`" for f in files.keys()]) + "\n\n"
+            f"*Created with [GrishteSync](https://suryasticsai.github.io/GrishteSync)*\n\n"
             f"![GrishteSync Logo](https://i.ibb.co/RGmb4FKk/1781072041102.png)"
         )
-
-    pr_data = {
-        "title": f"GrishteSync update v{version}",
-        "head": branch_name,
-        "base": default_branch,
-        "body": pr_body
-    }
-    pr_resp = requests.post(f"{GITHUB_API_URL}/repos/{username}/{repo_name}/pulls", headers=headers, json=pr_data)
-    pr_url = pr_resp.json().get("html_url") if pr_resp.status_code in [200, 201] else None
+        pr_resp = requests.post(
+            f"{GITHUB_API_URL}/repos/{username}/{repo_name}/pulls",
+            headers=gh_headers,
+            json={
+                "title": f"GrishteSync update v{version}",
+                "head":  branch_name,
+                "base":  default_branch,
+                "body":  pr_body
+            },
+            timeout=15
+        )
+        pr_data, _ = safe_json(pr_resp)
+        pr_url = pr_data.get("html_url") if pr_data and pr_resp.status_code in [200, 201] else None
+    except Exception as e:
+        pr_url = None
+        print(f"[WARN] PR creation failed: {e}", flush=True)
 
     return jsonify({
-        "status": "success",
+        "status":   "success",
         "repo_url": f"https://github.com/{username}/{repo_name}",
-        "branch": branch_name,
-        "pr_url": pr_url
+        "branch":   branch_name,
+        "pr_url":   pr_url
     })
-    
-# ---------- Hugging Face Deploy (better error handling) ----------
+
+
+# ---------- Deploy to Hugging Face ----------
+
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
-    import time
-
-    # --- Auth headers ---
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("token "):
+    # --- Auth ---
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("token "):
         return jsonify({"error": "Missing GitHub token"}), 401
-    github_token = auth_header.split(" ", 1)[1]
 
-    hf_header = request.headers.get("HF-Authorization")
-    if not hf_header or not hf_header.startswith("Bearer "):
+    hf_header = request.headers.get("HF-Authorization", "")
+    if not hf_header.startswith("Bearer "):
         return jsonify({"error": "Missing Hugging Face token. Please reconnect."}), 401
+
     hf_token = hf_header.split(" ", 1)[1]
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Invalid or missing JSON body"}), 400
+
     repo_full_name = data.get("repo_full_name")
-    space_name = data.get("space_name", repo_full_name.split("/")[1] if repo_full_name else "grishte-app")
-    sdk = data.get("sdk", "streamlit")
-    files = data.get("files", {})
-
     if not repo_full_name:
-        return jsonify({"error": "repo_full_name required"}), 400
+        return jsonify({"error": "repo_full_name is required"}), 400
 
-    # --- Auto-detect framework ---
-    if files:
-        for filename, content in files.items():
-            if filename.endswith('.py') and ('app' in filename.lower() or 'main' in filename.lower()):
-                cl = content.lower()
-                if 'gradio' in cl:
-                    sdk = "gradio"
-                    break
-                elif 'streamlit' in cl:
-                    sdk = "streamlit"
-                    break
-        for filename, content in files.items():
-            if filename == 'requirements.txt':
-                cl = content.lower()
-                if 'gradio' in cl:
-                    sdk = "gradio"
-                elif 'streamlit' in cl:
-                    sdk = "streamlit"
-                break
+    raw_space_name = data.get("space_name", repo_full_name.split("/")[1])
+    space_name     = sanitize_space_name(raw_space_name)
+    sdk            = data.get("sdk", "streamlit")
+    files          = data.get("files", {})
+
+    # --- Auto-detect SDK ---
+    for filename, content in files.items():
+        lower = content.lower()
+        if filename.endswith(".py") and ("app" in filename.lower() or "main" in filename.lower()):
+            if "gradio"    in lower: sdk = "gradio";    break
+            if "streamlit" in lower: sdk = "streamlit"; break
+            if "flask"     in lower: sdk = "docker";    break
+    for filename, content in files.items():
+        if filename == "requirements.txt":
+            lower = content.lower()
+            if "gradio"    in lower and sdk != "docker": sdk = "gradio"
+            elif "streamlit" in lower and sdk != "docker": sdk = "streamlit"
+            elif "flask"   in lower: sdk = "docker"
+            break
+
+    if sdk not in ("gradio", "streamlit", "docker", "static"):
+        sdk = "streamlit"
 
     # --- Validate HF token ---
     try:
         whoami_resp = requests.get(
             "https://huggingface.co/api/whoami-v2",
-            headers={"Authorization": f"Bearer {hf_token}"}
+            headers={"Authorization": f"Bearer {hf_token}"},
+            timeout=15
         )
-        if whoami_resp.status_code != 200:
-            try:
-                detail = whoami_resp.json()
-            except Exception:
-                detail = whoami_resp.text[:300]
+        whoami_data, err = safe_json(whoami_resp)
+        if err or whoami_resp.status_code != 200:
             return jsonify({
-                "error": f"HF token invalid (status {whoami_resp.status_code}). Please reconnect.",
-                "details": detail
+                "error": "HF token invalid or expired. Please reconnect Hugging Face.",
+                "details": err or whoami_data
             }), 401
-        hf_username = whoami_resp.json().get("name") or whoami_resp.json().get("fullname")
+        hf_username = whoami_data.get("name") or whoami_data.get("fullname") or whoami_data.get("id")
         if not hf_username:
-            return jsonify({"error": "Could not read HF username from token."}), 401
+            return jsonify({"error": "Could not read HF username from token response.", "raw": whoami_data}), 401
     except Exception as e:
-        return jsonify({"error": f"Failed to verify HF token: {str(e)}"}), 401
+        return jsonify({"error": "HF whoami request failed", "details": str(e)}), 500
 
-    # --- Create Space if it doesn't exist ---
-    space_check = requests.get(
-        f"https://huggingface.co/api/spaces/{hf_username}/{space_name}",
-        headers={"Authorization": f"Bearer {hf_token}"}
-    )
-
-    if space_check.status_code == 404:
-        create_resp = requests.post(
-            "https://huggingface.co/api/repos/create",
-            headers={
-                "Authorization": f"Bearer {hf_token}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "type": "space",
-                "name": space_name,
-                "sdk": sdk,
-                "private": False
-            }
+    # --- Check / Create Space ---
+    try:
+        space_check = requests.get(
+            f"{HF_API_URL}/spaces/{hf_username}/{space_name}",
+            headers={"Authorization": f"Bearer {hf_token}"},
+            timeout=15
         )
-        if create_resp.status_code not in [200, 201]:
-            try:
-                detail = create_resp.json()
-            except Exception:
-                detail = create_resp.text[:500]
-            return jsonify({
-                "error": f"Failed to create HF Space (status {create_resp.status_code})",
-                "details": detail
-            }), 500
-        time.sleep(4)  # Wait for Space to initialize
 
-    elif space_check.status_code != 200:
-        try:
-            detail = space_check.json()
-        except Exception:
-            detail = space_check.text[:300]
+        if space_check.status_code == 404:
+            create_payload = {
+                "type":    "space",
+                "name":    space_name,
+                "sdk":     sdk,
+                "private": False,
+                "exists_ok": True
+            }
+            create_resp = requests.post(
+                f"{HF_API_URL}/repos/create",
+                headers={
+                    "Authorization": f"Bearer {hf_token}",
+                    "Content-Type":  "application/json"
+                },
+                json=create_payload,
+                timeout=20
+            )
+            create_data, err = safe_json(create_resp)
+            if create_resp.status_code not in [200, 201]:
+                return jsonify({
+                    "error":         f"Failed to create HF Space (status {create_resp.status_code})",
+                    "details":       err or create_data,
+                    "payload_sent":  create_payload,
+                    "hf_username":   hf_username,
+                    "space_name":    space_name,
+                    "sdk":           sdk
+                }), 500
+            time.sleep(4)
+
+        elif space_check.status_code != 200:
+            detail, _ = safe_json(space_check)
+            return jsonify({
+                "error":   f"Unexpected status checking HF Space ({space_check.status_code})",
+                "details": detail or space_check.text[:300]
+            }), 500
+
+    except Exception as e:
         return jsonify({
-            "error": f"Unexpected response checking Space (status {space_check.status_code})",
-            "details": detail
+            "error":   "Space check/create exception",
+            "details": str(e),
+            "trace":   traceback.format_exc()
         }), 500
 
-    # --- Push files directly to HF Space repo ---
-    push_errors = []
-    for filepath, content in files.items():
-        encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
-        upload_url = f"https://huggingface.co/api/spaces/{hf_username}/{space_name}/upload/{filepath}"
-        
-        put_resp = requests.put(
-            upload_url,
-            headers={
-                "Authorization": f"Bearer {hf_token}",
-                "Content-Type": "application/octet-stream"
-            },
-            data=content.encode("utf-8")
-        )
-        if put_resp.status_code not in [200, 201]:
-            push_errors.append({
-                "file": filepath,
-                "status": put_resp.status_code,
-                "detail": put_resp.text[:200]
-            })
-
-    if push_errors:
-        # Fall back to HF Hub commit API
-        push_errors = []
-        operations = []
+    # --- Push files to HF Space via commit API ---
+    try:
+        file_payloads = []
         for filepath, content in files.items():
             encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
-            operations.append({
-                "key": filepath,
-                "type": "addOrUpdate",
-                "content": encoded,  # base64
+            file_payloads.append({
+                "path":     filepath,
+                "encoding": "base64",
+                "content":  encoded
             })
 
         commit_resp = requests.post(
-            f"https://huggingface.co/api/spaces/{hf_username}/{space_name}/commit/main",
+            f"{HF_API_URL}/spaces/{hf_username}/{space_name}/commit/main",
             headers={
                 "Authorization": f"Bearer {hf_token}",
-                "Content-Type": "application/json"
+                "Content-Type":  "application/json"
             },
             json={
-                "summary": "Deploy via GrishteSync",
-                "files": [
-                    {
-                        "path": fp,
-                        "content": base64.b64encode(fc.encode("utf-8")).decode("utf-8")
-                    }
-                    for fp, fc in files.items()
-                ]
-            }
+                "summary": f"Deploy via GrishteSync — {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+                "files":   file_payloads
+            },
+            timeout=60
         )
+        commit_data, err = safe_json(commit_resp)
+
         if commit_resp.status_code not in [200, 201]:
-            try:
-                detail = commit_resp.json()
-            except Exception:
-                detail = commit_resp.text[:500]
-            return jsonify({
-                "error": f"Failed to push files to HF Space (status {commit_resp.status_code})",
-                "details": detail,
-                "hint": "Check that your HF token has write access to Spaces."
-            }), 500
+            # Fallback: try upload endpoint per file
+            upload_errors = []
+            for filepath, content in files.items():
+                up = requests.put(
+                    f"{HF_API_URL}/spaces/{hf_username}/{space_name}/upload/{filepath}",
+                    headers={
+                        "Authorization": f"Bearer {hf_token}",
+                        "Content-Type":  "application/octet-stream"
+                    },
+                    data=content.encode("utf-8"),
+                    timeout=30
+                )
+                if up.status_code not in [200, 201]:
+                    up_data, _ = safe_json(up)
+                    upload_errors.append({
+                        "file":    filepath,
+                        "status":  up.status_code,
+                        "details": up_data or up.text[:200]
+                    })
+
+            if upload_errors:
+                return jsonify({
+                    "error":          "Failed to push files to HF Space (both commit and upload APIs failed)",
+                    "commit_status":  commit_resp.status_code,
+                    "commit_details": err or commit_data,
+                    "upload_errors":  upload_errors,
+                    "hint":           "Ensure your HF token has write:spaces scope."
+                }), 500
+
+    except Exception as e:
+        return jsonify({
+            "error":   "File push to HF Space exception",
+            "details": str(e),
+            "trace":   traceback.format_exc()
+        }), 500
 
     return jsonify({
-        "status": "success",
-        "space_url": f"https://huggingface.co/spaces/{hf_username}/{space_name}",
-        "sdk": sdk,
-        "files_deployed": list(files.keys())
+        "status":         "success",
+        "space_url":      f"https://huggingface.co/spaces/{hf_username}/{space_name}",
+        "sdk":            sdk,
+        "files_deployed": list(files.keys()),
+        "hf_username":    hf_username,
+        "space_name":     space_name
     })
+
+
+# ---------- Health check ----------
+
+@app.route("/", methods=["GET"])
+def health():
+    return jsonify({"status": "GrishteSync backend running", "version": "0.2"})
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
