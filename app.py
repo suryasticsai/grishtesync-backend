@@ -1,4 +1,4 @@
-# GrishteSync v0.3 - Simplified Backend with Personal HF Token
+# GrishteSync v0.3 - Simplified HF Integration
 import os
 import re
 import json
