@@ -418,7 +418,7 @@ def deploy_hf():
 
     hf_header = request.headers.get("HF-Authorization")
     if not hf_header or not hf_header.startswith("Bearer "):
-        return jsonify({"error": "Missing Hugging Face token"}), 401
+        return jsonify({"error": "Missing Hugging Face token. Please reconnect Hugging Face."}), 401
     hf_token = hf_header.split(" ", 1)[1]
 
     data = request.get_json()
@@ -429,69 +429,106 @@ def deploy_hf():
     if not repo_full_name:
         return jsonify({"error": "repo_full_name required"}), 400
 
-    # Get Hugging Face username
+    # ---------- Validate Hugging Face token ----------
     try:
-        hf_user_resp = requests.get(f"{HF_API_URL}/whoami", headers={"Authorization": f"Bearer {hf_token}"})
-        if hf_user_resp.status_code != 200:
-            return jsonify({"error": f"Invalid Hugging Face token (status {hf_user_resp.status_code})"}), 401
-        hf_username = hf_user_resp.json()["name"]
+        whoami_resp = requests.get(
+            f"{HF_API_URL}/whoami",
+            headers={"Authorization": f"Bearer {hf_token}"}
+        )
+        
+        # Check if response is HTML (token invalid)
+        content_type = whoami_resp.headers.get("Content-Type", "")
+        if "text/html" in content_type:
+            return jsonify({
+                "error": "Hugging Face token is invalid or expired. Please disconnect and reconnect Hugging Face.",
+                "hf_response_preview": whoami_resp.text[:300]
+            }), 401
+        
+        if whoami_resp.status_code != 200:
+            return jsonify({
+                "error": f"Hugging Face authentication failed (status {whoami_resp.status_code})",
+                "details": whoami_resp.text[:300]
+            }), 401
+        
+        hf_username = whoami_resp.json()["name"]
     except Exception as e:
-        return jsonify({"error": f"Failed to verify HF token: {str(e)}"}), 401
+        return jsonify({
+            "error": f"Failed to verify Hugging Face token: {str(e)}. Please reconnect Hugging Face."
+        }), 401
 
-    # Check if Space exists
+    # ---------- Create or get Space ----------
     space_url = f"{HF_API_URL}/spaces/{hf_username}/{space_name}"
     check = requests.get(space_url)
     
     if check.status_code == 404:
-        # Create Space
+        # Create new Space
         create_data = {
             "sdk": sdk,
             "hardware": "cpu-basic",
             "name": space_name,
             "private": False
         }
-        try:
-            create_resp = requests.post(
-                f"{HF_API_URL}/spaces",
-                json=create_data,
-                headers={"Authorization": f"Bearer {hf_token}"}
-            )
-            if create_resp.status_code not in [200, 201]:
-                return jsonify({
-                    "error": f"Failed to create Space (status {create_resp.status_code})",
-                    "details": create_resp.text[:500]
-                }), 500
-        except Exception as e:
-            return jsonify({"error": f"Space creation error: {str(e)}"}), 500
+        
+        create_resp = requests.post(
+            f"{HF_API_URL}/spaces",
+            json=create_data,
+            headers={"Authorization": f"Bearer {hf_token}"}
+        )
+        
+        # Check for HTML response (error)
+        create_content_type = create_resp.headers.get("Content-Type", "")
+        if "text/html" in create_content_type:
+            return jsonify({
+                "error": "Failed to create Space. Hugging Face returned an error page.",
+                "status": create_resp.status_code,
+                "preview": create_resp.text[:500]
+            }), 500
+        
+        if create_resp.status_code not in [200, 201]:
+            return jsonify({
+                "error": f"Failed to create Space (status {create_resp.status_code})",
+                "details": create_resp.text[:500]
+            }), 500
+        
+        # Wait for Space to be ready
+        import time
+        time.sleep(3)
+    
     elif check.status_code != 200:
         return jsonify({
             "error": f"Unexpected response checking Space (status {check.status_code})",
             "details": check.text[:500]
         }), 500
 
-    # Link GitHub repo to Space
-    try:
-        link_resp = requests.post(
-            f"{HF_API_URL}/spaces/{hf_username}/{space_name}/repo",
-            headers={"Authorization": f"Bearer {hf_token}"},
-            json={
-                "repo_id": repo_full_name,
-                "repo_type": "github",
-                "oauth_token": github_token
-            }
-        )
-        if link_resp.status_code not in [200, 201]:
-            return jsonify({
-                "error": f"Failed to link repo (status {link_resp.status_code})",
-                "details": link_resp.text[:500]
-            }), 500
-    except Exception as e:
-        return jsonify({"error": f"Repo linking error: {str(e)}"}), 500
+    # ---------- Link GitHub repo to Space ----------
+    link_resp = requests.post(
+        f"{HF_API_URL}/spaces/{hf_username}/{space_name}/repo",
+        headers={"Authorization": f"Bearer {hf_token}"},
+        json={
+            "repo_id": repo_full_name,
+            "repo_type": "github",
+            "oauth_token": github_token
+        }
+    )
+    
+    # Check for HTML response
+    link_content_type = link_resp.headers.get("Content-Type", "")
+    if "text/html" in link_content_type:
+        return jsonify({
+            "error": "Failed to link repo. Hugging Face returned an error page.",
+            "status": link_resp.status_code,
+            "preview": link_resp.text[:500]
+        }), 500
+    
+    if link_resp.status_code not in [200, 201]:
+        return jsonify({
+            "error": f"Failed to link repo (status {link_resp.status_code})",
+            "details": link_resp.text[:500]
+        }), 500
 
     return jsonify({
         "status": "success",
         "space_url": f"https://huggingface.co/spaces/{hf_username}/{space_name}"
     })
-
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
