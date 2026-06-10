@@ -299,7 +299,7 @@ def generate():
 # ---------- Deploy to GitHub (SHA fix) ----------
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
-    import time  # Add at the top of the function
+    import time
     
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("token "):
@@ -316,18 +316,34 @@ def deploy():
         return jsonify({"error": "Invalid token"}), 401
     username = user_resp.json()["login"]
 
-    # Create or get repo
+    # Check if repo already exists FIRST
     repo_url = f"{GITHUB_API_URL}/repos/{username}/{repo_name}"
     check = requests.get(repo_url, headers=headers)
-    if check.status_code != 200:
-        create_resp = requests.post(f"{GITHUB_API_URL}/user/repos", headers=headers,
-                                    json={"name": repo_name, "private": False, "auto_init": True})
+    
+    if check.status_code == 200:
+        # Repo already exists — no need to create
+        pass
+    elif check.status_code == 404:
+        # Repo doesn't exist — create it
+        create_resp = requests.post(
+            f"{GITHUB_API_URL}/user/repos",
+            headers=headers,
+            json={"name": repo_name, "private": False, "auto_init": True}
+        )
         if create_resp.status_code not in [200, 201]:
-            return jsonify({"error": f"Failed to create repo: {create_resp.text}"}), 500
-        
-        # Wait for GitHub to finish initializing the repo
+            return jsonify({
+                "error": f"Failed to create repo (status {create_resp.status_code})",
+                "details": create_resp.text[:500]
+            }), 500
+        # Wait for GitHub to initialize the repo
         time.sleep(3)
+    else:
+        return jsonify({
+            "error": f"Unexpected response checking repo (status {check.status_code})",
+            "details": check.text[:500]
+        }), 500
 
+    # Get default branch
     repo_info = requests.get(repo_url, headers=headers).json()
     default_branch = repo_info.get("default_branch", "main")
 
@@ -345,14 +361,18 @@ def deploy():
     if not ref_resp or ref_resp.status_code != 200:
         return jsonify({
             "error": "Failed to read default branch ref after retries.",
-            "details": ref_resp.text if ref_resp else "No response"
+            "status": ref_resp.status_code if ref_resp else "No response",
+            "details": ref_resp.text[:300] if ref_resp else "No response"
         }), 500
 
     sha = ref_resp.json()["object"]["sha"]
     new_ref_data = {"ref": f"refs/heads/{branch_name}", "sha": sha}
     create_ref = requests.post(f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs", headers=headers, json=new_ref_data)
     if create_ref.status_code != 201:
-        return jsonify({"error": f"Failed to create branch: {create_ref.text}"}), 500
+        return jsonify({
+            "error": f"Failed to create branch (status {create_ref.status_code})",
+            "details": create_ref.text[:300]
+        }), 500
 
     # Push files
     for filepath, content in files.items():
@@ -374,9 +394,8 @@ def deploy():
         put_resp = requests.put(api_path, headers=headers, json=payload)
         if put_resp.status_code not in [200, 201]:
             return jsonify({
-                "error": f"Push failed for {filepath}",
-                "status": put_resp.status_code,
-                "details": put_resp.text
+                "error": f"Push failed for {filepath} (status {put_resp.status_code})",
+                "details": put_resp.text[:300]
             }), 500
 
     # Create PR
@@ -408,6 +427,7 @@ def deploy():
         "branch": branch_name,
         "pr_url": pr_url
     })
+    
 # ---------- Hugging Face Deploy (better error handling) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
@@ -418,7 +438,7 @@ def deploy_hf():
 
     hf_header = request.headers.get("HF-Authorization")
     if not hf_header or not hf_header.startswith("Bearer "):
-        return jsonify({"error": "Missing Hugging Face token. Please reconnect Hugging Face."}), 401
+        return jsonify({"error": "Missing Hugging Face token. Please reconnect."}), 401
     hf_token = hf_header.split(" ", 1)[1]
 
     data = request.get_json()
@@ -427,7 +447,7 @@ def deploy_hf():
     sdk = data.get("sdk", "streamlit")
     files = data.get("files", {})
     
-    # ---------- Auto-detect framework ----------
+    # Auto-detect framework from files
     if files:
         for filename, content in files.items():
             if filename.endswith('.py') and ('app' in filename.lower() or 'main' in filename.lower()):
@@ -455,7 +475,7 @@ def deploy_hf():
     if not repo_full_name:
         return jsonify({"error": "repo_full_name required"}), 400
 
-    # ---------- Validate Hugging Face token ----------
+    # Validate Hugging Face token
     try:
         whoami_resp = requests.get(
             f"{HF_API_URL}/whoami",
@@ -465,13 +485,13 @@ def deploy_hf():
         content_type = whoami_resp.headers.get("Content-Type", "")
         if "text/html" in content_type:
             return jsonify({
-                "error": "Hugging Face token is invalid or expired. Please reconnect Hugging Face.",
+                "error": "Hugging Face token is invalid. Please disconnect and reconnect Hugging Face.",
                 "preview": whoami_resp.text[:200]
             }), 401
         
         if whoami_resp.status_code != 200:
             return jsonify({
-                "error": f"Hugging Face authentication failed (status {whoami_resp.status_code})",
+                "error": f"Hugging Face rejected token (status {whoami_resp.status_code}). Please reconnect.",
                 "details": whoami_resp.text[:300]
             }), 401
         
@@ -481,12 +501,11 @@ def deploy_hf():
             "error": f"Failed to verify HF token: {str(e)}"
         }), 401
 
-    # ---------- Create Space dynamically ----------
-    space_url = f"{HF_API_URL}/spaces/{hf_username}/{space_name}"
-    check = requests.get(space_url)
+    # Create Space dynamically
+    space_url_api = f"{HF_API_URL}/spaces/{hf_username}/{space_name}"
+    check = requests.get(space_url_api)
     
     if check.status_code == 404:
-        # Space doesn't exist — create it
         create_data = {
             "sdk": sdk,
             "hardware": "cpu-basic",
@@ -507,21 +526,15 @@ def deploy_hf():
             }), 500
         
         import time
-        time.sleep(3)  # Wait for Space initialization
+        time.sleep(3)
     
     elif check.status_code != 200:
         return jsonify({
             "error": f"Unexpected response checking Space (status {check.status_code})",
             "details": check.text[:300]
         }), 500
-    else:
-        # Space exists — update SDK if needed
-        existing_sdk = check.json().get("sdk", "")
-        if existing_sdk != sdk:
-            # Update the Space SDK (if HF API supports it — for now just warn)
-            pass
 
-    # ---------- Link GitHub repo to Space ----------
+    # Link GitHub repo to Space
     link_resp = requests.post(
         f"{HF_API_URL}/spaces/{hf_username}/{space_name}/repo",
         headers={"Authorization": f"Bearer {hf_token}"},
@@ -543,5 +556,6 @@ def deploy_hf():
         "space_url": f"https://huggingface.co/spaces/{hf_username}/{space_name}",
         "sdk": sdk
     })
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
