@@ -1,4 +1,4 @@
-# GrishteSync v0.3 - Simplified HF Integration
+# GrishteSync v0.3 - Simplified Backend integration into HF
 import os
 import re
 import json
@@ -102,7 +102,7 @@ def github_callback():
             return jsonify({"error": "GitHub token exchange failed", "details": err}), 500
         if "access_token" not in data:
             return jsonify({"error": "GitHub token error", "details": data}), 500
-        return redirect(f"{FRONTEND_URL}?token={data['access_token']}")
+        return redirect(f"{FRONTEND_URL}?token={data['access_token']}&github_user={data.get('login','')}")
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -313,10 +313,16 @@ def deploy():
     except:
         return jsonify({"error": "Repo info fetch failed"}), 500
 
+    # Create feature branch (handle existing branches)
+    branch_name = f"agent/feature-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
     sha = None
     for attempt in range(5):
         try:
-            ref_resp = requests.get(f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs/heads/{default_branch}", headers=gh_headers, timeout=10)
+            ref_resp = requests.get(
+                f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs/heads/{default_branch}",
+                headers=gh_headers, timeout=10
+            )
             if ref_resp.status_code == 200:
                 ref_data, err = safe_json(ref_resp)
                 if not err and ref_data:
@@ -325,18 +331,34 @@ def deploy():
         except:
             pass
         time.sleep(2)
-
+    
     if not sha:
         return jsonify({"error": "Failed to get branch SHA after 5 attempts"}), 500
 
-    branch_name = f"agent/feature-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
     try:
-        create_ref = requests.post(f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs", headers=gh_headers,
-                                   json={"ref": f"refs/heads/{branch_name}", "sha": sha}, timeout=10)
-        if create_ref.status_code != 201:
-            return jsonify({"error": f"Failed to create branch (status {create_ref.status_code})", "details": create_ref.text[:300]}), 500
+        create_ref = requests.post(
+            f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs",
+            headers=gh_headers,
+            json={"ref": f"refs/heads/{branch_name}", "sha": sha},
+            timeout=10
+        )
+        if create_ref.status_code == 422:
+            # Branch already exists — generate unique name
+            branch_name = f"agent/feature-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{os.urandom(3).hex()}"
+            create_ref = requests.post(
+                f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs",
+                headers=gh_headers,
+                json={"ref": f"refs/heads/{branch_name}", "sha": sha},
+                timeout=10
+            )
+        if create_ref.status_code not in [200, 201]:
+            detail, _ = safe_json(create_ref)
+            return jsonify({
+                "error": f"Failed to create branch (status {create_ref.status_code})",
+                "details": detail or create_ref.text[:300]
+            }), 500
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Branch creation exception: {str(e)}"}), 500
 
     for filepath, content in files.items():
         try:
@@ -375,7 +397,8 @@ def deploy():
         "status": "success",
         "repo_url": f"https://github.com/{username}/{repo_name}",
         "branch": branch_name,
-        "pr_url": pr_url
+        "pr_url": pr_url,
+        "username": username
     })
 
 # ---------- Deploy to Hugging Face ----------
@@ -417,7 +440,6 @@ def deploy_hf():
     if not hf_token:
         return jsonify({"error": "HF_API_TOKEN not configured on server"}), 500
 
-    # Get username from token
     try:
         whoami = requests.get("https://huggingface.co/api/whoami-v2",
                               headers={"Authorization": f"Bearer {hf_token}"}, timeout=15)
@@ -427,7 +449,6 @@ def deploy_hf():
     except Exception as e:
         return jsonify({"error": f"HF whoami failed: {str(e)}"}), 500
 
-    # Check / Create Space
     try:
         check = requests.get(f"{HF_API_URL}/spaces/{hf_username}/{space_name}",
                              headers={"Authorization": f"Bearer {hf_token}"}, timeout=15)
@@ -445,7 +466,6 @@ def deploy_hf():
     except Exception as e:
         return jsonify({"error": f"Space check/create exception: {str(e)}"}), 500
 
-    # Link GitHub repo
     try:
         link_resp = requests.post(f"{HF_API_URL}/spaces/{hf_username}/{space_name}/repo",
                                   headers={"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"},
