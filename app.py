@@ -65,9 +65,9 @@ def hf_login():
     params = {
         "client_id": HF_CLIENT_ID,
         "redirect_uri": f"{request.host_url.rstrip('/')}/hf/callback",
-        "scope": "write repo.read",
+        "scope": "write-repos read-repos",
         "state": "huggingface",
-        "response_type": "code"   # <-- THIS WAS MISSING
+        "response_type": "code" 
     }
     return redirect(f"{HF_AUTHORIZE_URL}?{urlencode(params)}")
 
