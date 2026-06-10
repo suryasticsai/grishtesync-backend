@@ -431,6 +431,9 @@ def deploy():
 # ---------- Hugging Face Deploy (better error handling) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
+    import time
+
+    # --- Auth headers ---
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("token "):
         return jsonify({"error": "Missing GitHub token"}), 401
@@ -446,116 +449,158 @@ def deploy_hf():
     space_name = data.get("space_name", repo_full_name.split("/")[1] if repo_full_name else "grishte-app")
     sdk = data.get("sdk", "streamlit")
     files = data.get("files", {})
-    
-    # Auto-detect framework from files
-    if files:
-        for filename, content in files.items():
-            if filename.endswith('.py') and ('app' in filename.lower() or 'main' in filename.lower()):
-                content_lower = content.lower()
-                if 'gradio' in content_lower:
-                    sdk = "gradio"
-                    break
-                elif 'streamlit' in content_lower:
-                    sdk = "streamlit"
-                    break
-                elif 'flask' in content_lower:
-                    sdk = "docker"
-                    break
-        for filename, content in files.items():
-            if filename == 'requirements.txt':
-                content_lower = content.lower()
-                if 'gradio' in content_lower and sdk != "docker":
-                    sdk = "gradio"
-                elif 'streamlit' in content_lower and sdk != "docker":
-                    sdk = "streamlit"
-                elif 'flask' in content_lower:
-                    sdk = "docker"
-                break
 
     if not repo_full_name:
         return jsonify({"error": "repo_full_name required"}), 400
 
-    # Validate Hugging Face token
+    # --- Auto-detect framework ---
+    if files:
+        for filename, content in files.items():
+            if filename.endswith('.py') and ('app' in filename.lower() or 'main' in filename.lower()):
+                cl = content.lower()
+                if 'gradio' in cl:
+                    sdk = "gradio"
+                    break
+                elif 'streamlit' in cl:
+                    sdk = "streamlit"
+                    break
+        for filename, content in files.items():
+            if filename == 'requirements.txt':
+                cl = content.lower()
+                if 'gradio' in cl:
+                    sdk = "gradio"
+                elif 'streamlit' in cl:
+                    sdk = "streamlit"
+                break
+
+    # --- Validate HF token ---
     try:
         whoami_resp = requests.get(
-            f"{HF_API_URL}/whoami",
+            "https://huggingface.co/api/whoami-v2",
             headers={"Authorization": f"Bearer {hf_token}"}
         )
-        
-        content_type = whoami_resp.headers.get("Content-Type", "")
-        if "text/html" in content_type:
-            return jsonify({
-                "error": "Hugging Face token is invalid. Please disconnect and reconnect Hugging Face.",
-                "preview": whoami_resp.text[:200]
-            }), 401
-        
         if whoami_resp.status_code != 200:
+            try:
+                detail = whoami_resp.json()
+            except Exception:
+                detail = whoami_resp.text[:300]
             return jsonify({
-                "error": f"Hugging Face rejected token (status {whoami_resp.status_code}). Please reconnect.",
-                "details": whoami_resp.text[:300]
+                "error": f"HF token invalid (status {whoami_resp.status_code}). Please reconnect.",
+                "details": detail
             }), 401
-        
-        hf_username = whoami_resp.json()["name"]
+        hf_username = whoami_resp.json().get("name") or whoami_resp.json().get("fullname")
+        if not hf_username:
+            return jsonify({"error": "Could not read HF username from token."}), 401
     except Exception as e:
-        return jsonify({
-            "error": f"Failed to verify HF token: {str(e)}"
-        }), 401
+        return jsonify({"error": f"Failed to verify HF token: {str(e)}"}), 401
 
-    # Create Space dynamically
-    space_url_api = f"{HF_API_URL}/spaces/{hf_username}/{space_name}"
-    check = requests.get(space_url_api)
-    
-    if check.status_code == 404:
-        create_data = {
-            "sdk": sdk,
-            "hardware": "cpu-basic",
-            "name": space_name,
-            "private": False
-        }
-        
-        create_resp = requests.post(
-            f"{HF_API_URL}/spaces",
-            json=create_data,
-            headers={"Authorization": f"Bearer {hf_token}"}
-        )
-        
-        if create_resp.status_code not in [200, 201]:
-            return jsonify({
-                "error": f"Failed to create Space (status {create_resp.status_code})",
-                "details": create_resp.text[:500]
-            }), 500
-        
-        import time
-        time.sleep(3)
-    
-    elif check.status_code != 200:
-        return jsonify({
-            "error": f"Unexpected response checking Space (status {check.status_code})",
-            "details": check.text[:300]
-        }), 500
-
-    # Link GitHub repo to Space
-    link_resp = requests.post(
-        f"{HF_API_URL}/spaces/{hf_username}/{space_name}/repo",
-        headers={"Authorization": f"Bearer {hf_token}"},
-        json={
-            "repo_id": repo_full_name,
-            "repo_type": "github",
-            "oauth_token": github_token
-        }
+    # --- Create Space if it doesn't exist ---
+    space_check = requests.get(
+        f"https://huggingface.co/api/spaces/{hf_username}/{space_name}",
+        headers={"Authorization": f"Bearer {hf_token}"}
     )
-    
-    if link_resp.status_code not in [200, 201]:
+
+    if space_check.status_code == 404:
+        create_resp = requests.post(
+            "https://huggingface.co/api/repos/create",
+            headers={
+                "Authorization": f"Bearer {hf_token}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "type": "space",
+                "name": space_name,
+                "sdk": sdk,
+                "private": False
+            }
+        )
+        if create_resp.status_code not in [200, 201]:
+            try:
+                detail = create_resp.json()
+            except Exception:
+                detail = create_resp.text[:500]
+            return jsonify({
+                "error": f"Failed to create HF Space (status {create_resp.status_code})",
+                "details": detail
+            }), 500
+        time.sleep(4)  # Wait for Space to initialize
+
+    elif space_check.status_code != 200:
+        try:
+            detail = space_check.json()
+        except Exception:
+            detail = space_check.text[:300]
         return jsonify({
-            "error": f"Failed to link repo (status {link_resp.status_code})",
-            "details": link_resp.text[:500]
+            "error": f"Unexpected response checking Space (status {space_check.status_code})",
+            "details": detail
         }), 500
+
+    # --- Push files directly to HF Space repo ---
+    push_errors = []
+    for filepath, content in files.items():
+        encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+        upload_url = f"https://huggingface.co/api/spaces/{hf_username}/{space_name}/upload/{filepath}"
+        
+        put_resp = requests.put(
+            upload_url,
+            headers={
+                "Authorization": f"Bearer {hf_token}",
+                "Content-Type": "application/octet-stream"
+            },
+            data=content.encode("utf-8")
+        )
+        if put_resp.status_code not in [200, 201]:
+            push_errors.append({
+                "file": filepath,
+                "status": put_resp.status_code,
+                "detail": put_resp.text[:200]
+            })
+
+    if push_errors:
+        # Fall back to HF Hub commit API
+        push_errors = []
+        operations = []
+        for filepath, content in files.items():
+            encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
+            operations.append({
+                "key": filepath,
+                "type": "addOrUpdate",
+                "content": encoded,  # base64
+            })
+
+        commit_resp = requests.post(
+            f"https://huggingface.co/api/spaces/{hf_username}/{space_name}/commit/main",
+            headers={
+                "Authorization": f"Bearer {hf_token}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "summary": "Deploy via GrishteSync",
+                "files": [
+                    {
+                        "path": fp,
+                        "content": base64.b64encode(fc.encode("utf-8")).decode("utf-8")
+                    }
+                    for fp, fc in files.items()
+                ]
+            }
+        )
+        if commit_resp.status_code not in [200, 201]:
+            try:
+                detail = commit_resp.json()
+            except Exception:
+                detail = commit_resp.text[:500]
+            return jsonify({
+                "error": f"Failed to push files to HF Space (status {commit_resp.status_code})",
+                "details": detail,
+                "hint": "Check that your HF token has write access to Spaces."
+            }), 500
 
     return jsonify({
         "status": "success",
         "space_url": f"https://huggingface.co/spaces/{hf_username}/{space_name}",
-        "sdk": sdk
+        "sdk": sdk,
+        "files_deployed": list(files.keys())
     })
-
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
