@@ -1,4 +1,4 @@
-# GrishteSync v0.3 - Simplified Backend integration into HF
+# GrishteSync v0.3 - Backend with Progress Timing
 import os
 import re
 import json
@@ -110,6 +110,7 @@ def github_callback():
 
 @app.route("/api/generate", methods=["POST"])
 def generate():
+    start_time = time.time()
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "Invalid JSON body"}), 400
@@ -254,6 +255,7 @@ def generate():
         if "files" not in generated:
             generated = {"files": generated}
 
+        generated["generate_time"] = round(time.time() - start_time, 1)
         return jsonify(generated)
 
     except Exception as e:
@@ -263,6 +265,7 @@ def generate():
 
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
+    start_time = time.time()
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("token "):
         return jsonify({"error": "Missing GitHub token"}), 401
@@ -313,16 +316,12 @@ def deploy():
     except:
         return jsonify({"error": "Repo info fetch failed"}), 500
 
-    # Create feature branch (handle existing branches)
     branch_name = f"agent/feature-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
     
     sha = None
     for attempt in range(5):
         try:
-            ref_resp = requests.get(
-                f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs/heads/{default_branch}",
-                headers=gh_headers, timeout=10
-            )
+            ref_resp = requests.get(f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs/heads/{default_branch}", headers=gh_headers, timeout=10)
             if ref_resp.status_code == 200:
                 ref_data, err = safe_json(ref_resp)
                 if not err and ref_data:
@@ -336,27 +335,15 @@ def deploy():
         return jsonify({"error": "Failed to get branch SHA after 5 attempts"}), 500
 
     try:
-        create_ref = requests.post(
-            f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs",
-            headers=gh_headers,
-            json={"ref": f"refs/heads/{branch_name}", "sha": sha},
-            timeout=10
-        )
+        create_ref = requests.post(f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs", headers=gh_headers,
+                                   json={"ref": f"refs/heads/{branch_name}", "sha": sha}, timeout=10)
         if create_ref.status_code == 422:
-            # Branch already exists — generate unique name
             branch_name = f"agent/feature-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{os.urandom(3).hex()}"
-            create_ref = requests.post(
-                f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs",
-                headers=gh_headers,
-                json={"ref": f"refs/heads/{branch_name}", "sha": sha},
-                timeout=10
-            )
+            create_ref = requests.post(f"{GITHUB_API_URL}/repos/{username}/{repo_name}/git/refs", headers=gh_headers,
+                                       json={"ref": f"refs/heads/{branch_name}", "sha": sha}, timeout=10)
         if create_ref.status_code not in [200, 201]:
             detail, _ = safe_json(create_ref)
-            return jsonify({
-                "error": f"Failed to create branch (status {create_ref.status_code})",
-                "details": detail or create_ref.text[:300]
-            }), 500
+            return jsonify({"error": f"Failed to create branch (status {create_ref.status_code})", "details": detail or create_ref.text[:300]}), 500
     except Exception as e:
         return jsonify({"error": f"Branch creation exception: {str(e)}"}), 500
 
@@ -398,13 +385,15 @@ def deploy():
         "repo_url": f"https://github.com/{username}/{repo_name}",
         "branch": branch_name,
         "pr_url": pr_url,
-        "username": username
+        "username": username,
+        "deploy_time": round(time.time() - start_time, 1)
     })
 
 # ---------- Deploy to Hugging Face ----------
 
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
+    start_time = time.time()
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "Invalid JSON body"}), 400
@@ -418,7 +407,6 @@ def deploy_hf():
     sdk = data.get("sdk", "streamlit")
     files = data.get("files", {})
 
-    # Auto-detect SDK
     for filename, content in files.items():
         lower = content.lower()
         if filename.endswith(".py") and ("app" in filename.lower() or "main" in filename.lower()):
@@ -452,7 +440,6 @@ def deploy_hf():
     try:
         check = requests.get(f"{HF_API_URL}/spaces/{hf_username}/{space_name}",
                              headers={"Authorization": f"Bearer {hf_token}"}, timeout=15)
-
         if check.status_code == 404:
             create_payload = {"type": "space", "name": space_name, "sdk": sdk, "private": False, "exists_ok": True}
             create_resp = requests.post(f"{HF_API_URL}/repos/create",
@@ -478,7 +465,8 @@ def deploy_hf():
     return jsonify({
         "status": "success",
         "space_url": f"https://huggingface.co/spaces/{hf_username}/{space_name}",
-        "sdk": sdk
+        "sdk": sdk,
+        "deploy_time": round(time.time() - start_time, 1)
     })
 
 # ---------- Health check ----------
