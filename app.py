@@ -59,18 +59,19 @@ def github_callback():
         return jsonify({"error": "GitHub token error", "details": data}), 500
     return redirect(f"{FRONTEND_URL}?token={data['access_token']}")
 
-# ---------- Hugging Face OAuth (debug mode) ----------
+# ---------- Hugging Face OAuth (FIXED) ----------
 @app.route("/hf/login")
 def hf_login():
     params = {
         "client_id": HF_CLIENT_ID,
         "redirect_uri": f"{request.host_url.rstrip('/')}/hf/callback",
         "scope": "write repo.read",
-        "state": "huggingface"
+        "state": "huggingface",
+        "response_type": "code"   # <-- THIS WAS MISSING
     }
     return redirect(f"{HF_AUTHORIZE_URL}?{urlencode(params)}")
 
-# 🔍 DEBUG: Shows the full token exchange response instead of redirecting
+# 🔍 Debug mode – shows the full token exchange response
 @app.route("/hf/callback")
 def hf_callback():
     code = request.args.get("code")
@@ -85,8 +86,6 @@ def hf_callback():
         "redirect_uri": f"{request.host_url.rstrip('/')}/hf/callback"
     }
     resp = requests.post(HF_TOKEN_URL, data=payload)
-
-    # Return the raw Hugging Face response so you can copy the error
     return jsonify({
         "debug_sent": payload,
         "response_status": resp.status_code,
@@ -237,7 +236,6 @@ def deploy():
         if put_resp.status_code not in [200, 201]:
             return jsonify({"error": f"Push failed for {filepath}: {put_resp.text}"}), 500
 
-    # PR with custom description
     custom_description = data.get("pr_description")
     if custom_description:
         pr_body = custom_description
