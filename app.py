@@ -1,4 +1,4 @@
-# GrishteSync v0.3 – Fixed GitHub user fetch + proper HF deploy
+# GrishteSync v0.3 – Reliable HF deploy via huggingface_hub
 import os
 import re
 import json
@@ -10,6 +10,7 @@ import requests
 from flask import Flask, request, jsonify, redirect, make_response
 from flask_cors import CORS
 from urllib.parse import urlencode
+from huggingface_hub import HfApi, create_repo, repo_exists
 
 app = Flask(__name__)
 
@@ -50,7 +51,6 @@ GITHUB_TOKEN_URL     = "https://github.com/login/oauth/access_token"
 GITHUB_API_URL       = "https://api.github.com"
 
 HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
-HF_API_URL   = "https://huggingface.co/api"
 
 # ---------- Helpers ----------
 
@@ -87,7 +87,6 @@ def github_callback():
     if not code:
         return jsonify({"error": "Missing code"}), 400
     try:
-        # Exchange code for access token
         resp = requests.post(GITHUB_TOKEN_URL,
             headers={"Accept": "application/json"},
             data={
@@ -105,7 +104,6 @@ def github_callback():
             return jsonify({"error": "GitHub token error", "details": data}), 500
 
         access_token = data["access_token"]
-
         # Fetch the username using the new token
         user_resp = requests.get(f"{GITHUB_API_URL}/user",
                                  headers={"Authorization": f"token {access_token}"},
@@ -113,7 +111,6 @@ def github_callback():
         user_data, user_err = safe_json(user_resp)
         username = user_data.get("login", "") if user_data else ""
 
-        # Redirect with both token and username
         return redirect(f"{FRONTEND_URL}?token={access_token}&github_user={username}")
 
     except Exception as e:
@@ -402,7 +399,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (PROPER FILE UPLOAD) ----------
+# ---------- Deploy to Hugging Face (using huggingface_hub) ----------
 
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
@@ -421,7 +418,7 @@ def deploy_hf():
         sdk = data.get("sdk", "streamlit")
         files = data.get("files", {})
 
-        # Auto-detect SDK
+        # Auto-detect SDK (unchanged)
         for filename, content in files.items():
             lower = content.lower()
             if filename.endswith(".py") and ("app" in filename.lower() or "main" in filename.lower()):
@@ -439,58 +436,51 @@ def deploy_hf():
         if sdk not in ("gradio", "streamlit", "docker", "static"):
             sdk = "streamlit"
 
-        hf_token = HF_API_TOKEN
-        if not hf_token:
+        if not HF_API_TOKEN:
             return jsonify({"error": "HF_API_TOKEN not configured on server"}), 500
 
-        # Validate token and get username
+        # Use huggingface_hub
+        api = HfApi(token=HF_API_TOKEN)
+
+        # Get the authenticated user's name
         try:
-            whoami = requests.get("https://huggingface.co/api/whoami-v2",
-                                  headers={"Authorization": f"Bearer {hf_token}"}, timeout=10)
-            if whoami.status_code != 200:
-                return jsonify({"error": "HF token invalid. Please update HF_API_TOKEN on Render.", "details": whoami.text[:200]}), 500
-            hf_username = whoami.json().get("name")
+            whoami = api.whoami()
+            hf_username = whoami["name"]
         except Exception as e:
-            return jsonify({"error": f"HF whoami failed: {str(e)}"}), 500
+            return jsonify({"error": f"HF token invalid or network error: {str(e)}"}), 500
 
-        # Create Space if it doesn't exist
-        space_check = requests.get(f"{HF_API_URL}/spaces/{hf_username}/{space_name}",
-                                   headers={"Authorization": f"Bearer {hf_token}"}, timeout=10)
-        if space_check.status_code == 404:
-            create_payload = {
-                "type": "space",
-                "name": space_name,
-                "sdk": sdk,
-                "private": False,
-                "exists_ok": True
-            }
-            create_resp = requests.post(f"{HF_API_URL}/repos/create",
-                                        headers={"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"},
-                                        json=create_payload, timeout=20)
-            if create_resp.status_code not in [200, 201]:
-                return jsonify({"error": f"Failed to create Space (status {create_resp.status_code})", "details": create_resp.text[:300]}), 500
-            time.sleep(4)  # Give HF a moment to initialize the repo
-        elif space_check.status_code != 200:
-            return jsonify({"error": f"Unexpected status checking Space ({space_check.status_code})", "details": space_check.text[:300]}), 500
+        repo_id = f"{hf_username}/{space_name}"
 
-        # Upload each file to the Space using the HTTP PUT endpoint
+        # Create the Space if it doesn't exist
+        if not repo_exists(repo_id, repo_type="space", token=HF_API_TOKEN):
+            try:
+                create_repo(repo_id, repo_type="space", space_sdk=sdk, token=HF_API_TOKEN, exist_ok=True)
+                # Wait a few seconds for the Space to initialize
+                time.sleep(5)
+            except Exception as e:
+                return jsonify({"error": f"Failed to create Space: {str(e)}"}), 500
+
+        # Upload files to the Space using upload_file (one by one)
         for filepath, content in files.items():
-            upload_url = f"{HF_API_URL}/spaces/{hf_username}/{space_name}/upload/{filepath}"
-            put_resp = requests.put(upload_url,
-                                    headers={"Authorization": f"Bearer {hf_token}"},
-                                    data=content.encode("utf-8"),
-                                    timeout=30)
-            if put_resp.status_code not in [200, 201]:
-                # If upload fails, try to commit via the commit API (fallback)
-                # For now, just return the error
+            # Write the content to a temporary file (or use upload_file with a bytesIO)
+            import io
+            file_obj = io.BytesIO(content.encode("utf-8"))
+            try:
+                api.upload_file(
+                    path_or_fileobj=file_obj,
+                    path_in_repo=filepath,
+                    repo_id=repo_id,
+                    repo_type="space",
+                    token=HF_API_TOKEN
+                )
+            except Exception as e:
                 return jsonify({
-                    "error": f"Failed to upload {filepath} (status {put_resp.status_code})",
-                    "details": put_resp.text[:300]
+                    "error": f"Failed to upload {filepath}: {str(e)}"
                 }), 500
 
         return jsonify({
             "status": "success",
-            "space_url": f"https://huggingface.co/spaces/{hf_username}/{space_name}",
+            "space_url": f"https://huggingface.co/spaces/{repo_id}",
             "sdk": sdk,
             "deploy_time": round(time.time() - start_time, 1)
         })
