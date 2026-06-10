@@ -1,4 +1,4 @@
-# GrishteSync - v0.1
+#GrishteSync v0.1
 import os
 import re
 import json
@@ -59,7 +59,7 @@ def github_callback():
         return jsonify({"error": "GitHub token error", "details": data}), 500
     return redirect(f"{FRONTEND_URL}?token={data['access_token']}")
 
-# ---------- Hugging Face OAuth  ----------
+# ---------- Hugging Face OAuth ----------
 @app.route("/hf/login")
 def hf_login():
     params = {
@@ -67,11 +67,10 @@ def hf_login():
         "redirect_uri": f"{request.host_url.rstrip('/')}/hf/callback",
         "scope": "write-repos read-repos",
         "state": "huggingface",
-        "response_type": "code" 
+        "response_type": "code"
     }
     return redirect(f"{HF_AUTHORIZE_URL}?{urlencode(params)}")
 
-# 🔍 Debug mode – shows the full token exchange response
 @app.route("/hf/callback")
 def hf_callback():
     code = request.args.get("code")
@@ -91,7 +90,8 @@ def hf_callback():
 
     access_token = data["access_token"]
     return redirect(f"{FRONTEND_URL}?hf_token={access_token}")
-# ---------- AI Generation (unchanged) ----------
+
+# ---------- AI Generation with robust JSON parser ----------
 @app.route("/api/generate", methods=["POST"])
 def generate():
     data = request.get_json()
@@ -110,7 +110,10 @@ def generate():
         "The user will give a description of the app they want. "
         "If the prompt is empty or meaningless, generate a simple Gradio or Streamlit app that displays the prompt text in a nice card. "
         "Otherwise, build the requested app. "
-        "Return exactly a JSON object with a key 'files' mapping filenames to file contents. "
+        "Return exactly a valid JSON object with a key 'files' mapping filenames to file contents. "
+        "CRITICAL: The JSON must be valid. Every string must use double quotes. No trailing commas. "
+        "Escape all double quotes inside strings with backslash. Use \\n for newlines inside code strings. "
+        "Do not wrap the JSON in markdown code fences. Do not add any text before or after the JSON.\n\n"
         "Important rules:\n"
         "1. Every Python file must start with this exact comment:\n"
         "# Created with GrishteSync\n"
@@ -121,18 +124,17 @@ def generate():
         "   and a link to https://suryasticsai.github.io/GrishteSync.\n"
         "   For Streamlit, use st.markdown() or similar; for Gradio, gr.HTML() or similar.\n"
         "3. The main app must also show the GrishteSync logo as a header or footer image.\n"
-        "   Use this exact URL for the image: https://i.ibb.co/pjmCv3Vy/1781038658031.png\n"
-        "   For Streamlit: st.image('https://i.ibb.co/pjmCv3Vy/1781038658031.png', width=200)\n"
-        "   For Gradio: gr.HTML('<img src=\"https://i.ibb.co/pjmCv3Vy/1781038658031.png\" width=\"200\">')\n"
+        "   Use this exact URL for the image: https://i.ibb.co/RGmb4FKk/1781072041102.png\n"
+        "   For Streamlit: st.image('https://i.ibb.co/RGmb4FKk/1781072041102.png', width=200)\n"
+        "   For Gradio: gr.HTML('<img src=\"https://i.ibb.co/RGmb4FKk/1781072041102.png\" width=\"200\">')\n"
         "   Place it above the title or in the footer, together with the watermark text.\n"
         "4. The README.md file must contain a 'Built with GrishteSync' section with:\n"
         "   - Link to the author's GitHub: https://github.com/suryasticsai\n"
         "   - LinkedIn: https://linkedin.com/in/suryasticsai\n"
         "   - Email: suryasticsai@gmail.com\n"
-        "   - The logo image: ![GrishteSync Logo](https://i.ibb.co/pjmCv3Vy/1781038658031.png)\n"
-        "5. Use valid JSON: escape double quotes inside strings, use \\n for newlines. Do not wrap the JSON in markdown.\n"
-        "6. Include a requirements.txt with all dependencies.\n"
-        "7. For a meaningless prompt, create a minimal app that simply shows the user's input text."
+        "   - The logo image: ![GrishteSync Logo](https://i.ibb.co/RGmb4FKk/1781072041102.png)\n"
+        "5. Include a requirements.txt with all dependencies.\n"
+        "6. For a meaningless prompt, create a minimal app that simply shows the user's input text."
     )
 
     messages = [
@@ -168,17 +170,98 @@ def generate():
         )
         resp.raise_for_status()
         ai_content = resp.json()["choices"][0]["message"]["content"].strip()
-        if ai_content.startswith("```json"):
-            ai_content = ai_content[7:]
-        if ai_content.endswith("```"):
-            ai_content = ai_content[:-3]
-        json_match = re.search(r'\{.*\}', ai_content, re.DOTALL)
-        if json_match:
-            ai_content = json_match.group(0)
-        generated = json.loads(ai_content)
+
+        # --- Robust JSON extraction and repair ---
+        # Remove markdown code fences
+        ai_content = re.sub(r'^```(?:json)?\s*', '', ai_content.strip())
+        ai_content = re.sub(r'\s*```$', '', ai_content.strip())
+        
+        # Try to find JSON object boundaries
+        start_idx = ai_content.find('{')
+        end_idx = ai_content.rfind('}')
+        
+        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+            ai_content = ai_content[start_idx:end_idx + 1]
+        
+        # Fix common JSON errors
+        # 1. Remove trailing commas before closing braces/brackets
+        ai_content = re.sub(r',\s*}', '}', ai_content)
+        ai_content = re.sub(r',\s*]', ']', ai_content)
+        
+        # 2. Fix unescaped newlines inside strings
+        def fix_newlines_in_strings(text):
+            result = []
+            in_string = False
+            escape_next = False
+            for char in text:
+                if escape_next:
+                    result.append(char)
+                    escape_next = False
+                    continue
+                if char == '\\':
+                    result.append(char)
+                    escape_next = True
+                    continue
+                if char == '"':
+                    in_string = not in_string
+                    result.append(char)
+                    continue
+                if in_string and char == '\n':
+                    result.append('\\n')
+                elif in_string and char == '\t':
+                    result.append('\\t')
+                elif in_string and char == '\r':
+                    result.append('')
+                else:
+                    result.append(char)
+            return ''.join(result)
+        
+        ai_content = fix_newlines_in_strings(ai_content)
+        
+        # 3. Try multiple parsing attempts
+        generated = None
+        errors = []
+        
+        # Attempt 1: Direct JSON parse
+        try:
+            generated = json.loads(ai_content)
+        except json.JSONDecodeError as e1:
+            errors.append(f"Attempt 1: {str(e1)}")
+            
+            # Attempt 2: Try ast.literal_eval
+            try:
+                import ast
+                generated = ast.literal_eval(ai_content)
+                if not isinstance(generated, dict):
+                    generated = None
+                    raise ValueError("Not a dict")
+            except Exception as e2:
+                errors.append(f"Attempt 2: {str(e2)}")
+                
+                # Attempt 3: Fix unbalanced braces
+                try:
+                    open_braces = ai_content.count('{')
+                    close_braces = ai_content.count('}')
+                    if open_braces > close_braces:
+                        ai_content += '}' * (open_braces - close_braces)
+                    elif close_braces > open_braces:
+                        ai_content = '{' * (close_braces - open_braces) + ai_content
+                    generated = json.loads(ai_content)
+                except Exception as e3:
+                    errors.append(f"Attempt 3: {str(e3)}")
+        
+        if generated is None:
+            return jsonify({
+                "error": "Failed to parse AI response as JSON after multiple attempts.",
+                "raw_response": ai_content[:1000],
+                "parse_errors": errors
+            }), 500
+
         if "files" not in generated:
             generated = {"files": generated}
+
         return jsonify(generated)
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -245,7 +328,7 @@ def deploy():
             f"**Files changed:**\n" +
             "\n".join([f"- {f}" for f in files.keys()]) + "\n\n"
             f"*Created with [GrishteSync](https://suryasticsai.github.io/GrishteSync) | [Suryasticsai](https://github.com/suryasticsai) | suryasticsai@gmail.com*\n\n"
-            f"![GrishteSync Logo](https://i.ibb.co/pjmCv3Vy/1781038658031.png)"
+            f"![GrishteSync Logo](https://i.ibb.co/RGmb4FKk/1781072041102.png)"
         )
 
     pr_data = {
