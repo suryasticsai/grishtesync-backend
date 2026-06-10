@@ -1,4 +1,4 @@
-# GrishteSync v0.3 – Fixed GitHub auth + HF deploy via huggingface_hub
+# GrishteSync v0.4 – Fixed GitHub auth + HF deploy (robust repo_full_name handling)
 import os
 import re
 import json
@@ -280,7 +280,6 @@ def generate():
 def deploy():
     start_time = time.time()
     auth_header = request.headers.get("Authorization", "")
-    # Support both Bearer and token
     if auth_header.startswith("Bearer "):
         user_token = auth_header.split(" ", 1)[1]
     elif auth_header.startswith("token "):
@@ -369,7 +368,6 @@ def deploy():
             encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
             api_path = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/contents/{filepath}"
             payload = {"message": f"Update {filepath} via GrishteSync v{version}", "content": encoded, "branch": branch_name}
-            # Check if file exists on this branch to get its SHA
             file_check = requests.get(f"{api_path}?ref={branch_name}", headers=gh_headers, timeout=10)
             if file_check.status_code == 200:
                 fdata, _ = safe_json(file_check)
@@ -407,7 +405,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (using huggingface_hub) ----------
+# ---------- Deploy to Hugging Face (using huggingface_hub) – FIXED ----------
 
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
@@ -421,7 +419,12 @@ def deploy_hf():
         if not repo_full_name:
             return jsonify({"error": "repo_full_name is required"}), 400
 
-        raw_space_name = data.get("space_name", repo_full_name.split("/")[1])
+        # ✅ FIX: handle names with or without slash
+        if "/" in repo_full_name:
+            raw_space_name = data.get("space_name", repo_full_name.split("/")[1])
+        else:
+            raw_space_name = data.get("space_name", repo_full_name)
+
         space_name = sanitize_space_name(raw_space_name)
         sdk = data.get("sdk", "streamlit")
         files = data.get("files", {})
