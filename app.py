@@ -1,5 +1,4 @@
-# GrishteSync v0.3.1 – AI Python App Builder (Flask/Gradio/Streamlit) + GitHub/HF Deploy
-# Fixed: Gradio launch arguments (removed enable_queue, inline, show_error)
+# GrishteSync v0.4 – User HF tokens + auto-update GitHub README with HF link
 import os
 import re
 import json
@@ -19,7 +18,7 @@ app = Flask(__name__)
 # ---------- CORS ----------
 CORS(app, resources={r"/*": {
     "origins": "*",
-    "allow_headers": ["Content-Type", "Authorization"],
+    "allow_headers": ["Content-Type", "Authorization", "X-HF-Token"],
     "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 }})
 
@@ -28,7 +27,7 @@ def handle_preflight():
     if request.method == "OPTIONS":
         response = make_response()
         response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-HF-Token"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
         response.status_code = 200
         return response
@@ -36,7 +35,7 @@ def handle_preflight():
 @app.after_request
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-HF-Token"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     return response
 
@@ -52,10 +51,9 @@ GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL     = "https://github.com/login/oauth/access_token"
 GITHUB_API_URL       = "https://api.github.com"
 
-HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
+HF_API_TOKEN = os.environ.get("HF_API_TOKEN")  # fallback
 
 # ---------- Helpers ----------
-
 def safe_json(resp):
     ct = resp.headers.get("Content-Type", "")
     if "text/html" in ct:
@@ -72,7 +70,6 @@ def sanitize_space_name(name):
     return name[:96] or "grishte-app"
 
 # ---------- GitHub OAuth ----------
-
 @app.route("/auth/login")
 def github_login():
     params = {
@@ -117,8 +114,7 @@ def github_callback():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---------- AI Generation (Improved System Prompt) ----------
-
+# ---------- AI Generation (No logo watermark) ----------
 @app.route("/api/generate", methods=["POST"])
 def generate():
     start_time = time.time()
@@ -165,7 +161,7 @@ def generate():
         "# https://suryasticsai.github.io/GrishteSync\n"
         "# Suryasticsai | suryasticsai@gmail.com\n"
         "2. The main app file must display somewhere: 'Made with GrishteSync | Suryasticsai | suryasticsai@gmail.com'\n"
-        "3. Show logo: https://i.ibb.co/RGmb4FKk/1781072041102.png (use HTML img tag or markdown).\n"
+        "3. Do NOT include any logo image URL.\n"
     )
 
     messages = [
@@ -284,7 +280,6 @@ def generate():
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
 # ---------- Deploy to GitHub ----------
-
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
     start_time = time.time()
@@ -395,8 +390,7 @@ def deploy():
             f"**Version:** v{version}\n\n"
             f"**Files changed:**\n" +
             "\n".join([f"- `{f}`" for f in files.keys()]) + "\n\n"
-            f"*Created with [GrishteSync](https://suryasticsai.github.io/GrishteSync)*\n\n"
-            f"![GrishteSync Logo](https://i.ibb.co/RGmb4FKk/1781072041102.png)"
+            f"*Created with [GrishteSync](https://suryasticsai.github.io/GrishteSync)*"
         )
         pr_resp = requests.post(f"{GITHUB_API_URL}/repos/{username}/{repo_name}/pulls", headers=gh_headers,
                                 json={"title": f"GrishteSync update v{version}", "head": branch_name, "base": default_branch, "body": pr_body}, timeout=15)
@@ -414,8 +408,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (v0.3.1 – fixed Gradio launch arguments) ----------
-
+# ---------- Deploy to Hugging Face (with user token + update GitHub README) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     start_time = time.time()
@@ -427,6 +420,13 @@ def deploy_hf():
         repo_full_name = data.get("repo_full_name")
         if not repo_full_name:
             return jsonify({"error": "repo_full_name is required"}), 400
+
+        # User's HF token (if provided)
+        user_hf_token = data.get("hf_token") or request.headers.get("X-HF-Token")
+        # Fallback to server token
+        hf_token = user_hf_token if user_hf_token else HF_API_TOKEN
+        if not hf_token:
+            return jsonify({"error": "No Hugging Face token provided. Please connect your HF account."}), 400
 
         # Handle names with or without slash
         if "/" in repo_full_name:
@@ -453,7 +453,6 @@ def deploy_hf():
                     framework = "streamlit"
                     break
 
-        # Override SDK based on detection
         if framework == "flask":
             sdk = "docker"
         elif framework == "gradio":
@@ -461,9 +460,8 @@ def deploy_hf():
         elif framework == "streamlit":
             sdk = "streamlit"
 
-        # ----- Framework‑specific fixes -----
-        if sdk == "docker":   # Flask
-            # Ensure requirements.txt has flask + huggingface_hub
+        # ----- Framework‑specific fixes (same as before) -----
+        if sdk == "docker":
             if "requirements.txt" not in files:
                 files["requirements.txt"] = "flask\nhuggingface_hub\n"
             else:
@@ -473,8 +471,6 @@ def deploy_hf():
                 if "huggingface_hub" not in req.lower():
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
-
-            # Inject Dockerfile if missing
             if "Dockerfile" not in files:
                 files["Dockerfile"] = """FROM python:3.9-slim
 WORKDIR /app
@@ -483,8 +479,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 CMD ["python", "app.py"]
 """.strip()
-
-            # Patch Flask to listen on 0.0.0.0:7860
             for fname, content in files.items():
                 if fname.endswith(".py") and "app.run" in content:
                     if "port=7860" not in content.lower():
@@ -493,7 +487,6 @@ CMD ["python", "app.py"]
                         files[fname] = new
 
         elif sdk == "gradio":
-            # Ensure requirements.txt has gradio + huggingface_hub
             if "requirements.txt" not in files:
                 files["requirements.txt"] = "gradio\nhuggingface_hub\n"
             else:
@@ -503,33 +496,24 @@ CMD ["python", "app.py"]
                 if "huggingface_hub" not in req.lower():
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
-
-            # Patch Gradio launch – remove unsupported args (enable_queue, inline, show_error) and add server_name/port
             for fname, content in files.items():
                 if fname.endswith(".py") and "launch" in content:
-                    # Remove problematic arguments
                     new_content = content
-                    # Remove enable_queue, inline, show_error (with or without values)
                     new_content = re.sub(r'enable_queue\s*=\s*True\s*,?\s*', '', new_content)
                     new_content = re.sub(r'enable_queue\s*=\s*False\s*,?\s*', '', new_content)
                     new_content = re.sub(r'inline\s*=\s*False\s*,?\s*', '', new_content)
                     new_content = re.sub(r'inline\s*=\s*True\s*,?\s*', '', new_content)
                     new_content = re.sub(r'show_error\s*=\s*False\s*,?\s*', '', new_content)
                     new_content = re.sub(r'show_error\s*=\s*True\s*,?\s*', '', new_content)
-                    
-                    # Ensure server_name and server_port are present
                     if "server_name" not in new_content:
                         new_content = new_content.replace(".launch(", ".launch(server_name='0.0.0.0', server_port=7860, ")
                     elif "server_port" not in new_content:
                         new_content = new_content.replace(".launch(", ".launch(server_port=7860, ")
-                    
-                    # Clean up any double commas or trailing commas
                     new_content = re.sub(r',\s*,', ',', new_content)
                     new_content = re.sub(r',\s*\)', ')', new_content)
                     files[fname] = new_content
 
         elif sdk == "streamlit":
-            # Ensure requirements.txt has streamlit + huggingface_hub
             if "requirements.txt" not in files:
                 files["requirements.txt"] = "streamlit\nhuggingface_hub\n"
             else:
@@ -539,32 +523,26 @@ CMD ["python", "app.py"]
                 if "huggingface_hub" not in req.lower():
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
-            # Streamlit does not need port patching – HF handles it automatically
 
-        # ----- HF API interaction -----
-        if not HF_API_TOKEN:
-            return jsonify({"error": "HF_API_TOKEN not configured on server"}), 500
-
-        api = HfApi(token=HF_API_TOKEN)
-
+        # ----- HF API -----
+        api = HfApi(token=hf_token)
         try:
             whoami = api.whoami()
             hf_username = whoami["name"]
         except Exception as e:
-            return jsonify({"error": f"HF token invalid or network error: {str(e)}"}), 500
+            return jsonify({"error": f"Invalid HF token: {str(e)}"}), 401
 
         repo_id = f"{hf_username}/{space_name}"
         if sdk not in ("gradio", "streamlit", "docker", "static"):
-            sdk = "streamlit"  # fallback
+            sdk = "streamlit"
 
-        if not repo_exists(repo_id, repo_type="space", token=HF_API_TOKEN):
+        if not repo_exists(repo_id, repo_type="space", token=hf_token):
             try:
-                create_repo(repo_id, repo_type="space", space_sdk=sdk, token=HF_API_TOKEN, exist_ok=True)
+                create_repo(repo_id, repo_type="space", space_sdk=sdk, token=hf_token, exist_ok=True)
                 time.sleep(5)
             except Exception as e:
                 return jsonify({"error": f"Failed to create Space: {str(e)}"}), 500
 
-        # Upload all files
         for filepath, content in files.items():
             file_obj = io.BytesIO(content.encode("utf-8"))
             try:
@@ -573,14 +551,41 @@ CMD ["python", "app.py"]
                     path_in_repo=filepath,
                     repo_id=repo_id,
                     repo_type="space",
-                    token=HF_API_TOKEN
+                    token=hf_token
                 )
             except Exception as e:
                 return jsonify({"error": f"Failed to upload {filepath}: {str(e)}"}), 500
 
+        space_url = f"https://huggingface.co/spaces/{repo_id}"
+
+        # ----- Update GitHub README with HF link -----
+        github_token = data.get("github_token") or request.headers.get("Authorization", "").replace("Bearer ", "").replace("token ", "")
+        if github_token and repo_full_name and "/" in repo_full_name:
+            try:
+                gh_headers = {"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github.v3+json"}
+                # Get current README
+                readme_resp = requests.get(f"{GITHUB_API_URL}/repos/{repo_full_name}/contents/README.md", headers=gh_headers)
+                readme_content = ""
+                readme_sha = None
+                if readme_resp.status_code == 200:
+                    readme_data = readme_resp.json()
+                    readme_content = base64.b64decode(readme_data["content"]).decode("utf-8")
+                    readme_sha = readme_data["sha"]
+                # Add HF badge
+                badge_md = f"\n\n[![Hugging Face Space](https://img.shields.io/badge/🤗-Open%20in%20Spaces-blue)]({space_url})\n"
+                if badge_md not in readme_content:
+                    readme_content += badge_md
+                    encoded_new = base64.b64encode(readme_content.encode("utf-8")).decode("utf-8")
+                    payload = {"message": "Add Hugging Face Space link", "content": encoded_new, "branch": "main"}
+                    if readme_sha:
+                        payload["sha"] = readme_sha
+                    requests.put(f"{GITHUB_API_URL}/repos/{repo_full_name}/contents/README.md", headers=gh_headers, json=payload)
+            except:
+                pass  # non-critical
+
         return jsonify({
             "status": "success",
-            "space_url": f"https://huggingface.co/spaces/{repo_id}",
+            "space_url": space_url,
             "sdk": sdk,
             "deploy_time": round(time.time() - start_time, 1)
         })
@@ -593,10 +598,9 @@ CMD ["python", "app.py"]
         }), 500
 
 # ---------- Health check ----------
-
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "0.3.1"})
+    return jsonify({"status": "GrishteSync backend running", "version": "0.4"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
