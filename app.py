@@ -1,4 +1,4 @@
-# GrishteSync v0.3 – Reliable HF deploy via huggingface_hub
+# GrishteSync v0.3 – Fixed GitHub auth + HF deploy via huggingface_hub
 import os
 import re
 import json
@@ -6,6 +6,7 @@ import base64
 import time
 import traceback
 import datetime
+import io
 import requests
 from flask import Flask, request, jsonify, redirect, make_response
 from flask_cors import CORS
@@ -106,7 +107,7 @@ def github_callback():
         access_token = data["access_token"]
         # Fetch the username using the new token
         user_resp = requests.get(f"{GITHUB_API_URL}/user",
-                                 headers={"Authorization": f"token {access_token}"},
+                                 headers={"Authorization": f"Bearer {access_token}"},
                                  timeout=10)
         user_data, user_err = safe_json(user_resp)
         username = user_data.get("login", "") if user_data else ""
@@ -130,7 +131,9 @@ def generate():
     user_token = None
 
     auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("token "):
+    if auth_header.startswith("Bearer "):
+        user_token = auth_header.split(" ", 1)[1]
+    elif auth_header.startswith("token "):
         user_token = auth_header.split(" ", 1)[1]
 
     if not prompt:
@@ -163,7 +166,7 @@ def generate():
 
     if repo_full_name and user_token:
         try:
-            gh_headers = {"Authorization": f"token {user_token}", "Accept": "application/vnd.github.v3+json"}
+            gh_headers = {"Authorization": f"Bearer {user_token}", "Accept": "application/vnd.github.v3+json"}
             contents_resp = requests.get(f"{GITHUB_API_URL}/repos/{repo_full_name}/contents", headers=gh_headers, timeout=15)
             if contents_resp.status_code == 200:
                 existing_code = {}
@@ -271,15 +274,19 @@ def generate():
     except Exception as e:
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
-# ---------- Deploy to GitHub ----------
+# ---------- Deploy to GitHub (Bearer token) ----------
 
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
     start_time = time.time()
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("token "):
+    # Support both Bearer and token
+    if auth_header.startswith("Bearer "):
+        user_token = auth_header.split(" ", 1)[1]
+    elif auth_header.startswith("token "):
+        user_token = auth_header.split(" ", 1)[1]
+    else:
         return jsonify({"error": "Missing GitHub token"}), 401
-    user_token = auth_header.split(" ", 1)[1]
 
     data = request.get_json(silent=True)
     if not data:
@@ -292,7 +299,7 @@ def deploy():
     if not repo_name:
         return jsonify({"error": "repo_name is required"}), 400
 
-    gh_headers = {"Authorization": f"token {user_token}", "Accept": "application/vnd.github.v3+json"}
+    gh_headers = {"Authorization": f"Bearer {user_token}", "Accept": "application/vnd.github.v3+json"}
 
     try:
         user_resp = requests.get(f"{GITHUB_API_URL}/user", headers=gh_headers, timeout=10)
@@ -362,6 +369,7 @@ def deploy():
             encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
             api_path = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/contents/{filepath}"
             payload = {"message": f"Update {filepath} via GrishteSync v{version}", "content": encoded, "branch": branch_name}
+            # Check if file exists on this branch to get its SHA
             file_check = requests.get(f"{api_path}?ref={branch_name}", headers=gh_headers, timeout=10)
             if file_check.status_code == 200:
                 fdata, _ = safe_json(file_check)
@@ -418,7 +426,7 @@ def deploy_hf():
         sdk = data.get("sdk", "streamlit")
         files = data.get("files", {})
 
-        # Auto-detect SDK (unchanged)
+        # Auto-detect SDK
         for filename, content in files.items():
             lower = content.lower()
             if filename.endswith(".py") and ("app" in filename.lower() or "main" in filename.lower()):
@@ -439,10 +447,8 @@ def deploy_hf():
         if not HF_API_TOKEN:
             return jsonify({"error": "HF_API_TOKEN not configured on server"}), 500
 
-        # Use huggingface_hub
         api = HfApi(token=HF_API_TOKEN)
 
-        # Get the authenticated user's name
         try:
             whoami = api.whoami()
             hf_username = whoami["name"]
@@ -451,19 +457,15 @@ def deploy_hf():
 
         repo_id = f"{hf_username}/{space_name}"
 
-        # Create the Space if it doesn't exist
         if not repo_exists(repo_id, repo_type="space", token=HF_API_TOKEN):
             try:
                 create_repo(repo_id, repo_type="space", space_sdk=sdk, token=HF_API_TOKEN, exist_ok=True)
-                # Wait a few seconds for the Space to initialize
                 time.sleep(5)
             except Exception as e:
                 return jsonify({"error": f"Failed to create Space: {str(e)}"}), 500
 
-        # Upload files to the Space using upload_file (one by one)
+        # Upload files
         for filepath, content in files.items():
-            # Write the content to a temporary file (or use upload_file with a bytesIO)
-            import io
             file_obj = io.BytesIO(content.encode("utf-8"))
             try:
                 api.upload_file(
@@ -474,9 +476,7 @@ def deploy_hf():
                     token=HF_API_TOKEN
                 )
             except Exception as e:
-                return jsonify({
-                    "error": f"Failed to upload {filepath}: {str(e)}"
-                }), 500
+                return jsonify({"error": f"Failed to upload {filepath}: {str(e)}"}), 500
 
         return jsonify({
             "status": "success",
@@ -496,7 +496,7 @@ def deploy_hf():
 
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "0.3"})
+    return jsonify({"status": "GrishteSync backend running", "version": "0.4"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
