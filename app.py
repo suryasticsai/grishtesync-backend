@@ -1,4 +1,4 @@
-# GrishteSync v1.0 – Git-Based HF Deployment with Fixed Identity
+# GrishteSync v1.0 – Git-Based HF Deployment with Fixed Authentication
 import os
 import re
 import json
@@ -78,18 +78,11 @@ GITHUB_API_URL       = "https://api.github.com"
 
 HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
 
-# ---------- Setup Git Identity (Fix for Render) ----------
+# ---------- Setup Git Identity ----------
 def setup_git_identity():
-    """Configure Git user identity for the current process"""
     try:
-        # Check if already configured
-        result = subprocess.run(["git", "config", "--global", "user.name"], capture_output=True, text=True)
-        if not result.stdout.strip():
-            subprocess.run(["git", "config", "--global", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
-        result = subprocess.run(["git", "config", "--global", "user.email"], capture_output=True, text=True)
-        if not result.stdout.strip():
-            subprocess.run(["git", "config", "--global", "user.email", "grishtesync@render.com"], check=False, capture_output=True)
-        # Also try environment variables as fallback
+        subprocess.run(["git", "config", "--global", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
+        subprocess.run(["git", "config", "--global", "user.email", "grishtesync@render.com"], check=False, capture_output=True)
         os.environ.setdefault('GIT_AUTHOR_NAME', 'GrishteSync Bot')
         os.environ.setdefault('GIT_AUTHOR_EMAIL', 'grishtesync@render.com')
         os.environ.setdefault('GIT_COMMITTER_NAME', 'GrishteSync Bot')
@@ -97,7 +90,6 @@ def setup_git_identity():
     except Exception as e:
         print(f"Git identity setup warning: {e}")
 
-# Call this once when the app starts
 setup_git_identity()
 
 # ---------- Multi‑Prompt Loader ----------
@@ -137,7 +129,6 @@ def sanitize_space_name(name):
     return name[:96] or "grishte-app"
 
 def generate_readme(space_name, config_key):
-    """Generate README.md content from config.yaml template"""
     if not CONFIG:
         return f"# {space_name}\n\nDeployed with GrishteSync."
     
@@ -492,7 +483,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (Git-Based with Identity Fix) ----------
+# ---------- Deploy to Hugging Face (Fixed Git Authentication) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     start_time = time.time()
@@ -515,7 +506,6 @@ def deploy_hf():
             username = repo_full_name.split("/")[0]
             raw_space_name = data.get("space_name", repo_full_name.split("/")[1])
         else:
-            # Try to get HF username from token
             api = HfApi(token=HF_API_TOKEN)
             try:
                 whoami = api.whoami()
@@ -542,7 +532,6 @@ def deploy_hf():
                     framework = "streamlit"
                     break
 
-        # Map framework to config key
         if framework == "flask":
             config_key = "docker"
         elif framework == "gradio":
@@ -566,7 +555,6 @@ def deploy_hf():
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
             
-            # Add Dockerfile from config or default
             if "Dockerfile" not in files:
                 if CONFIG and CONFIG['spaces'].get(config_key, {}).get('dockerfile_content'):
                     files["Dockerfile"] = CONFIG['spaces'][config_key]['dockerfile_content']
@@ -580,7 +568,6 @@ EXPOSE 7860
 CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
 """
             
-            # Fix Flask app to use correct host/port
             for fname, content in files.items():
                 if fname.endswith(".py") and "app.run" in content:
                     if "port=7860" not in content.lower():
@@ -599,7 +586,6 @@ CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
             
-            # Fix Gradio launch
             for fname, content in files.items():
                 if fname.endswith(".py") and "launch" in content:
                     new_content = content
@@ -617,18 +603,20 @@ CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
                     new_content = re.sub(r',\s*\)', ')', new_content)
                     files[fname] = new_content
 
-        # Generate README.md from config
+        # Generate README.md
         files["README.md"] = generate_readme(space_name, config_key)
 
-        # Create temp directory for Git operations
+        # Create temp directory
         temp_dir = tempfile.mkdtemp()
-        space_repo_url = f"https://{HF_API_TOKEN}@huggingface.co/spaces/{username}/{space_name}"
         
-        # ✅ Ensure Git identity is set (for this subprocess)
+        # ✅ FIXED: Use username:token format (not token@)
+        space_repo_url = f"https://{username}:{HF_API_TOKEN}@huggingface.co/spaces/{username}/{space_name}"
+        
+        # Ensure Git identity is set
         subprocess.run(["git", "config", "--global", "user.email", "grishtesync@render.com"], check=False, capture_output=True)
         subprocess.run(["git", "config", "--global", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
         
-        # Try to clone existing space, or create new one
+        # Clone existing space
         clone_result = subprocess.run(
             ["git", "clone", space_repo_url, temp_dir],
             capture_output=True,
@@ -636,7 +624,6 @@ CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
         )
         
         if clone_result.returncode != 0:
-            # Space doesn't exist, create it using huggingface_hub
             try:
                 space_sdk = "docker" if config_key in ["docker", "streamlit"] else "gradio"
                 create_repo(
@@ -651,20 +638,18 @@ CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
             except Exception as e:
                 return jsonify({"error": f"Failed to create Space: {str(e)}"}), 500
         
-        # Write all files to the temp directory
+        # Write files
         for filepath, content in files.items():
             file_path = os.path.join(temp_dir, filepath)
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
         
-        # Git operations: add, commit, push
+        # Git add, commit, push
         subprocess.run(["git", "-C", temp_dir, "add", "."], check=True, capture_output=True)
         
-        # Check if there are changes to commit
         status_result = subprocess.run(["git", "-C", temp_dir, "status", "--porcelain"], capture_output=True, text=True)
         if status_result.stdout.strip():
-            # Set local repo config as well
             subprocess.run(["git", "-C", temp_dir, "config", "user.email", "grishtesync@render.com"], check=False, capture_output=True)
             subprocess.run(["git", "-C", temp_dir, "config", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
             
@@ -683,32 +668,34 @@ CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
                 if commit_result.returncode != 0:
                     return jsonify({"error": f"Git commit failed: {commit_result.stderr}"}), 500
             
-            push_result = subprocess.run(["git", "-C", temp_dir, "push"], capture_output=True, text=True)
+            push_result = subprocess.run(
+                ["git", "-C", temp_dir, "push", "origin", "HEAD:main", "--force"],
+                capture_output=True,
+                text=True
+            )
             if push_result.returncode != 0:
                 return jsonify({"error": f"Git push failed: {push_result.stderr}"}), 500
         
         space_url = f"https://huggingface.co/spaces/{username}/{space_name}"
         
-        # Update GitHub README with HF badge if GitHub token provided
+        # Update GitHub README with HF badge
         github_token = data.get("github_token") or request.headers.get("Authorization", "").replace("Bearer ", "").replace("token ", "")
         if github_token and repo_full_name and "/" in repo_full_name:
             try:
                 gh_headers = {"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github.v3+json"}
                 readme_resp = requests.get(f"{GITHUB_API_URL}/repos/{repo_full_name}/contents/README.md", headers=gh_headers)
-                readme_content = ""
-                readme_sha = None
                 if readme_resp.status_code == 200:
                     readme_data = readme_resp.json()
                     readme_content = base64.b64decode(readme_data["content"]).decode("utf-8")
                     readme_sha = readme_data["sha"]
-                badge_md = f"\n\n[![Hugging Face Space](https://img.shields.io/badge/🤗-Open%20in%20Spaces-blue)]({space_url})\n"
-                if badge_md not in readme_content:
-                    readme_content += badge_md
-                    encoded_new = base64.b64encode(readme_content.encode("utf-8")).decode("utf-8")
-                    payload = {"message": "Add Hugging Face Space link", "content": encoded_new, "branch": "main"}
-                    if readme_sha:
-                        payload["sha"] = readme_sha
-                    requests.put(f"{GITHUB_API_URL}/repos/{repo_full_name}/contents/README.md", headers=gh_headers, json=payload)
+                    badge_md = f"\n\n[![Hugging Face Space](https://img.shields.io/badge/🤗-Open%20in%20Spaces-blue)]({space_url})\n"
+                    if badge_md not in readme_content:
+                        readme_content += badge_md
+                        encoded_new = base64.b64encode(readme_content.encode("utf-8")).decode("utf-8")
+                        payload = {"message": "Add Hugging Face Space link", "content": encoded_new, "branch": "main"}
+                        if readme_sha:
+                            payload["sha"] = readme_sha
+                        requests.put(f"{GITHUB_API_URL}/repos/{repo_full_name}/contents/README.md", headers=gh_headers, json=payload)
             except:
                 pass
 
