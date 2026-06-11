@@ -1,4 +1,4 @@
-# GrishteSync v1.0 – Git-Based HF Deployment (Reliable)
+# GrishteSync v1.0 – Git-Based HF Deployment with Fixed Identity
 import os
 import re
 import json
@@ -77,6 +77,28 @@ GITHUB_TOKEN_URL     = "https://github.com/login/oauth/access_token"
 GITHUB_API_URL       = "https://api.github.com"
 
 HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
+
+# ---------- Setup Git Identity (Fix for Render) ----------
+def setup_git_identity():
+    """Configure Git user identity for the current process"""
+    try:
+        # Check if already configured
+        result = subprocess.run(["git", "config", "--global", "user.name"], capture_output=True, text=True)
+        if not result.stdout.strip():
+            subprocess.run(["git", "config", "--global", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
+        result = subprocess.run(["git", "config", "--global", "user.email"], capture_output=True, text=True)
+        if not result.stdout.strip():
+            subprocess.run(["git", "config", "--global", "user.email", "grishtesync@render.com"], check=False, capture_output=True)
+        # Also try environment variables as fallback
+        os.environ.setdefault('GIT_AUTHOR_NAME', 'GrishteSync Bot')
+        os.environ.setdefault('GIT_AUTHOR_EMAIL', 'grishtesync@render.com')
+        os.environ.setdefault('GIT_COMMITTER_NAME', 'GrishteSync Bot')
+        os.environ.setdefault('GIT_COMMITTER_EMAIL', 'grishtesync@render.com')
+    except Exception as e:
+        print(f"Git identity setup warning: {e}")
+
+# Call this once when the app starts
+setup_git_identity()
 
 # ---------- Multi‑Prompt Loader ----------
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), 'prompts')
@@ -470,7 +492,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (Git-Based - RELIABLE) ----------
+# ---------- Deploy to Hugging Face (Git-Based with Identity Fix) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     start_time = time.time()
@@ -602,6 +624,10 @@ CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
         temp_dir = tempfile.mkdtemp()
         space_repo_url = f"https://{HF_API_TOKEN}@huggingface.co/spaces/{username}/{space_name}"
         
+        # ✅ Ensure Git identity is set (for this subprocess)
+        subprocess.run(["git", "config", "--global", "user.email", "grishtesync@render.com"], check=False, capture_output=True)
+        subprocess.run(["git", "config", "--global", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
+        
         # Try to clone existing space, or create new one
         clone_result = subprocess.run(
             ["git", "clone", space_repo_url, temp_dir],
@@ -612,7 +638,6 @@ CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
         if clone_result.returncode != 0:
             # Space doesn't exist, create it using huggingface_hub
             try:
-                # Determine SDK for space creation
                 space_sdk = "docker" if config_key in ["docker", "streamlit"] else "gradio"
                 create_repo(
                     repo_id=f"{username}/{space_name}",
@@ -621,8 +646,7 @@ CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
                     token=HF_API_TOKEN,
                     exist_ok=True
                 )
-                time.sleep(3)  # Wait for space initialization
-                # Try cloning again
+                time.sleep(3)
                 subprocess.run(["git", "clone", space_repo_url, temp_dir], check=True, capture_output=True)
             except Exception as e:
                 return jsonify({"error": f"Failed to create Space: {str(e)}"}), 500
@@ -630,6 +654,7 @@ CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
         # Write all files to the temp directory
         for filepath, content in files.items():
             file_path = os.path.join(temp_dir, filepath)
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
         
@@ -639,7 +664,25 @@ CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
         # Check if there are changes to commit
         status_result = subprocess.run(["git", "-C", temp_dir, "status", "--porcelain"], capture_output=True, text=True)
         if status_result.stdout.strip():
-            subprocess.run(["git", "-C", temp_dir, "commit", "-m", f"Deploy from GrishteSync v{time.time()}"], check=True, capture_output=True)
+            # Set local repo config as well
+            subprocess.run(["git", "-C", temp_dir, "config", "user.email", "grishtesync@render.com"], check=False, capture_output=True)
+            subprocess.run(["git", "-C", temp_dir, "config", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
+            
+            commit_msg = f"Deploy from GrishteSync v{int(time.time())}"
+            commit_result = subprocess.run(
+                ["git", "-C", temp_dir, "commit", "-m", commit_msg],
+                capture_output=True,
+                text=True
+            )
+            if commit_result.returncode != 0:
+                commit_result = subprocess.run(
+                    ["git", "-C", temp_dir, "commit", "-m", commit_msg, "--author=GrishteSync Bot <grishtesync@render.com>"],
+                    capture_output=True,
+                    text=True
+                )
+                if commit_result.returncode != 0:
+                    return jsonify({"error": f"Git commit failed: {commit_result.stderr}"}), 500
+            
             push_result = subprocess.run(["git", "-C", temp_dir, "push"], capture_output=True, text=True)
             if push_result.returncode != 0:
                 return jsonify({"error": f"Git push failed: {push_result.stderr}"}), 500
@@ -731,12 +774,12 @@ def get_repo_files():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---------- Get HF logs (SSE) ----------
+# ---------- Get HF logs ----------
 @app.route("/api/hf-logs", methods=["POST"])
 def get_hf_logs():
     data = request.get_json()
     space_name = data.get("space_name")
-    log_type = data.get("log_type", "build")  # 'build' or 'run'
+    log_type = data.get("log_type", "build")
     if not space_name:
         return jsonify({"error": "Missing space_name"}), 400
     
@@ -746,9 +789,11 @@ def get_hf_logs():
         logs_url = f"https://huggingface.co/api/spaces/{space_name}/logs/{log_type}"
         resp = requests.get(logs_url, headers=headers, timeout=10, stream=True)
         if resp.status_code == 200:
-            # Return as JSON with logs array
-            logs = resp.json() if resp.headers.get('content-type') == 'application/json' else {"logs": resp.text}
-            return jsonify(logs)
+            if 'application/json' in resp.headers.get('content-type', ''):
+                logs = resp.json()
+                return jsonify(logs)
+            else:
+                return jsonify({"logs": resp.text, "status": "building"})
         else:
             return jsonify({"logs": [], "error": f"Status {resp.status_code}"})
     except Exception as e:
