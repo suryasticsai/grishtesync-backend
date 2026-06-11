@@ -1,4 +1,4 @@
-# GrishteSync v1.0 – Git-Based HF Deployment with Fixed Authentication
+# GrishteSync v1.1 – Dynamic Version Fetching (Gradio, Python)
 import os
 import re
 import json
@@ -50,11 +50,35 @@ def load_config():
         with open(config_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
     except FileNotFoundError:
+        # Default config (will be used if file missing)
         return {
             'spaces': {
-                'docker': {'sdk': 'docker', 'sdk_version': '3.9', 'python_version': '3.10', 'app_file': 'app.py', 'pinned': False},
-                'gradio': {'sdk': 'gradio', 'sdk_version': '5.0', 'python_version': '3.10', 'app_file': 'app.py', 'pinned': False},
-                'streamlit': {'sdk': 'docker', 'sdk_version': '3.9', 'python_version': '3.10', 'app_file': 'app.py', 'pinned': False}
+                'docker': {
+                    'sdk': 'docker',
+                    'sdk_version': '3.9',
+                    'python_version': '3.10',
+                    'app_file': 'app.py',
+                    'pinned': False,
+                    'footer_text': 'Deployed automatically by GrishteSync.',
+                    'dockerfile_content': None  # Will be generated dynamically
+                },
+                'gradio': {
+                    'sdk': 'gradio',
+                    'sdk_version': '5.0',   # will be overridden by dynamic version
+                    'python_version': '3.10',
+                    'app_file': 'app.py',
+                    'pinned': False,
+                    'footer_text': 'Gradio app built with GrishteSync.'
+                },
+                'streamlit': {
+                    'sdk': 'docker',
+                    'sdk_version': '3.9',
+                    'python_version': '3.10',
+                    'app_file': 'app.py',
+                    'pinned': False,
+                    'footer_text': 'Streamlit app built with GrishteSync.',
+                    'dockerfile_content': None
+                }
             },
             'defaults': {'license': 'MIT', 'author': 'GrishteSync'}
         }
@@ -78,7 +102,30 @@ GITHUB_API_URL       = "https://api.github.com"
 
 HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
 
-# ---------- Setup Git Identity ----------
+# ---------- Dynamic Version Fetching (with caching) ----------
+_version_cache = {}
+_cache_ttl = 3600  # 1 hour
+
+def get_latest_pypi_version(package_name):
+    """Return the latest version of a package from PyPI, with caching."""
+    now = time.time()
+    if package_name in _version_cache:
+        cached_time, version = _version_cache[package_name]
+        if now - cached_time < _cache_ttl:
+            return version
+    try:
+        url = f"https://pypi.org/pypi/{package_name}/json"
+        resp = requests.get(url, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            version = data["info"]["version"]
+            _version_cache[package_name] = (now, version)
+            return version
+    except Exception as e:
+        print(f"Failed to fetch {package_name} version: {e}")
+    return None
+
+# ---------- Git Identity Setup ----------
 def setup_git_identity():
     try:
         subprocess.run(["git", "config", "--global", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
@@ -128,12 +175,18 @@ def sanitize_space_name(name):
     name = name.strip('-')
     return name[:96] or "grishte-app"
 
-def generate_readme(space_name, config_key):
+def generate_readme(space_name, config_key, gradio_version=None):
+    """Generate README.md with dynamic Gradio version if applicable."""
     if not CONFIG:
         return f"# {space_name}\n\nDeployed with GrishteSync."
     
-    space_config = CONFIG['spaces'].get(config_key, CONFIG['spaces']['docker'])
+    space_config = CONFIG['spaces'].get(config_key, CONFIG['spaces']['docker']).copy()
     
+    # Override Gradio version if provided and config_key is gradio
+    if config_key == "gradio" and gradio_version:
+        space_config['sdk_version'] = gradio_version
+    
+    # Replace placeholders
     config_copy = {}
     for key, value in space_config.items():
         if isinstance(value, str) and '{space_name}' in value:
@@ -156,6 +209,27 @@ def generate_readme(space_name, config_key):
     yaml_lines.append(space_config.get('footer_text', f"Deployed automatically by GrishteSync."))
     
     return "\n".join(yaml_lines)
+
+def generate_dockerfile(config_key):
+    """Generate Dockerfile content dynamically using python:3-slim floating tag."""
+    if config_key == "streamlit":
+        return """FROM python:3-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 7860
+CMD ["streamlit", "run", "app.py", "--server.port=7860", "--server.address=0.0.0.0"]
+"""
+    else:  # flask/docker
+        return """FROM python:3-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 7860
+CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
+"""
 
 # ---------- GitHub OAuth ----------
 @app.route("/auth/login")
@@ -483,7 +557,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (Fixed Git Authentication) ----------
+# ---------- Deploy to Hugging Face (Dynamic Versions) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     start_time = time.time()
@@ -501,7 +575,7 @@ def deploy_hf():
         if not HF_API_TOKEN:
             return jsonify({"error": "HF_API_TOKEN not configured on server"}), 500
 
-        # Parse repo name and space name
+        # Get HF username
         if "/" in repo_full_name:
             username = repo_full_name.split("/")[0]
             raw_space_name = data.get("space_name", repo_full_name.split("/")[1])
@@ -541,8 +615,19 @@ def deploy_hf():
         else:
             config_key = "docker"
 
-        # Framework-specific fixes
+        # ----- Dynamic Version Fetching -----
+        gradio_latest = None
+        if config_key == "gradio":
+            gradio_latest = get_latest_pypi_version("gradio")
+            if gradio_latest:
+                print(f"Using Gradio version {gradio_latest}")
+            else:
+                gradio_latest = "5.0.0"  # fallback
+                print("Failed to fetch Gradio version, using fallback 5.0.0")
+
+        # ----- Framework‑specific fixes (with dynamic versions) -----
         if config_key == "docker" or framework == "flask":
+            # requirements.txt
             if "requirements.txt" not in files:
                 files["requirements.txt"] = "flask\ngunicorn\nhuggingface_hub\n"
             else:
@@ -555,19 +640,11 @@ def deploy_hf():
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
             
+            # Dockerfile (dynamic, uses python:3-slim floating tag)
             if "Dockerfile" not in files:
-                if CONFIG and CONFIG['spaces'].get(config_key, {}).get('dockerfile_content'):
-                    files["Dockerfile"] = CONFIG['spaces'][config_key]['dockerfile_content']
-                else:
-                    files["Dockerfile"] = """FROM python:3.9-slim-buster
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-EXPOSE 7860
-CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
-"""
+                files["Dockerfile"] = generate_dockerfile(config_key)
             
+            # Fix Flask app port
             for fname, content in files.items():
                 if fname.endswith(".py") and "app.run" in content:
                     if "port=7860" not in content.lower():
@@ -576,16 +653,19 @@ CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
                         files[fname] = new
 
         elif config_key == "gradio" or framework == "gradio":
+            # requirements.txt with dynamic Gradio version
             if "requirements.txt" not in files:
-                files["requirements.txt"] = "gradio\nhuggingface_hub\n"
+                files["requirements.txt"] = f"gradio=={gradio_latest}\nhuggingface_hub\n"
             else:
                 req = files["requirements.txt"]
-                if "gradio" not in req.lower():
-                    req += "\ngradio\n"
+                # Remove any existing gradio line and add the dynamic version
+                req_lines = [line for line in req.split('\n') if not line.lower().startswith('gradio')]
+                req_lines.append(f"gradio=={gradio_latest}")
                 if "huggingface_hub" not in req.lower():
-                    req += "\nhuggingface_hub\n"
-                files["requirements.txt"] = req
+                    req_lines.append("huggingface_hub")
+                files["requirements.txt"] = "\n".join(req_lines)
             
+            # Fix Gradio launch
             for fname, content in files.items():
                 if fname.endswith(".py") and "launch" in content:
                     new_content = content
@@ -603,20 +683,16 @@ CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
                     new_content = re.sub(r',\s*\)', ')', new_content)
                     files[fname] = new_content
 
-        # Generate README.md
-        files["README.md"] = generate_readme(space_name, config_key)
+        # Generate README.md with dynamic Gradio version if needed
+        files["README.md"] = generate_readme(space_name, config_key, gradio_latest)
 
-        # Create temp directory
+        # ----- Git Operations (same as before) -----
         temp_dir = tempfile.mkdtemp()
-        
-        # ✅ FIXED: Use username:token format (not token@)
         space_repo_url = f"https://{username}:{HF_API_TOKEN}@huggingface.co/spaces/{username}/{space_name}"
         
-        # Ensure Git identity is set
         subprocess.run(["git", "config", "--global", "user.email", "grishtesync@render.com"], check=False, capture_output=True)
         subprocess.run(["git", "config", "--global", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
         
-        # Clone existing space
         clone_result = subprocess.run(
             ["git", "clone", space_repo_url, temp_dir],
             capture_output=True,
@@ -833,7 +909,7 @@ Do not include any explanations or markdown outside the JSON."""
 # ---------- Health check ----------
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "1.0"})
+    return jsonify({"status": "GrishteSync backend running", "version": "1.1"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
