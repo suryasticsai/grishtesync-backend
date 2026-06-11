@@ -6,3 +6,6 @@ Rules:
 - Do not break existing features.
 - Preserve watermark.
 - Output only the modified files.
+
+**IMPORTANT for existing repo updates:**
+When the user provides an existing codebase (you will see it as context), you MUST return ONLY the files that need to be added or changed. Do NOT return files that should remain exactly as they are. Only include a file in the "files" object if its content is different from the current version. This ensures that other files are not accidentally deleted.
