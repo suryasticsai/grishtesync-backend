@@ -1,4 +1,4 @@
-# GrishteSync v0.9 – Fixed HF Space Creation with huggingface_hub
+# GrishteSync v1.0 – External Config + Fixed HF Deployment
 import os
 import re
 import json
@@ -8,6 +8,7 @@ import traceback
 import datetime
 import io
 import requests
+import yaml
 from flask import Flask, request, jsonify, redirect, make_response
 from flask_cors import CORS
 from urllib.parse import urlencode
@@ -38,6 +39,29 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     return response
+
+# ---------- Load Configuration ----------
+def load_config():
+    """Load configuration from config.yaml file"""
+    config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        # Return default config if file not found
+        return {
+            'spaces': {
+                'docker': {'sdk': 'docker', 'sdk_version': '3.9', 'python_version': '3.10', 'app_file': 'app.py', 'pinned': False},
+                'gradio': {'sdk': 'gradio', 'sdk_version': '5.0', 'python_version': '3.10', 'app_file': 'app.py', 'pinned': False},
+                'streamlit': {'sdk': 'docker', 'sdk_version': '3.9', 'python_version': '3.10', 'app_file': 'app.py', 'pinned': False}
+            },
+            'defaults': {'license': 'MIT', 'author': 'GrishteSync'}
+        }
+    except Exception as e:
+        print(f"Error loading config: {e}")
+        return None
+
+CONFIG = load_config()
 
 # ---------- Configuration ----------
 GROQ_API_KEY       = os.environ.get("GROQ_API_KEY")
@@ -88,6 +112,38 @@ def sanitize_space_name(name):
     name = re.sub(r'-+', '-', name)
     name = name.strip('-')
     return name[:96] or "grishte-app"
+
+def generate_readme(space_name, sdk_type):
+    """Generate README.md content from config.yaml template"""
+    if not CONFIG:
+        return f"# {space_name}\n\nDeployed with GrishteSync."
+    
+    space_config = CONFIG['spaces'].get(sdk_type, CONFIG['spaces']['docker'])
+    
+    # Replace {space_name} placeholder
+    config_copy = {}
+    for key, value in space_config.items():
+        if isinstance(value, str):
+            config_copy[key] = value.format(space_name=space_name)
+        else:
+            config_copy[key] = value
+    
+    # Build YAML frontmatter
+    yaml_lines = ["---"]
+    for key, value in config_copy.items():
+        if key in ['dockerfile_content', 'footer_text']:
+            continue
+        if isinstance(value, bool):
+            yaml_lines.append(f"{key}: {str(value).lower()}")
+        else:
+            yaml_lines.append(f"{key}: {value}")
+    yaml_lines.append("---")
+    yaml_lines.append("")
+    yaml_lines.append(f"# {space_name}")
+    yaml_lines.append("")
+    yaml_lines.append(space_config.get('footer_text', f"Deployed automatically by GrishteSync."))
+    
+    return "\n".join(yaml_lines)
 
 # ---------- GitHub OAuth ----------
 @app.route("/auth/login")
@@ -415,7 +471,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (using huggingface_hub) ----------
+# ---------- Deploy to Hugging Face (using config.yaml) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     start_time = time.time()
@@ -455,15 +511,18 @@ def deploy_hf():
                     framework = "streamlit"
                     break
 
+        # Map framework to config key
         if framework == "flask":
-            sdk = "docker"
+            config_key = "docker"
         elif framework == "gradio":
-            sdk = "gradio"
+            config_key = "gradio"
         elif framework == "streamlit":
-            sdk = "streamlit"
+            config_key = "streamlit"
+        else:
+            config_key = "docker"
 
         # Framework-specific fixes
-        if sdk == "docker":
+        if config_key == "docker" or framework == "flask":
             if "requirements.txt" not in files:
                 files["requirements.txt"] = "flask\nhuggingface_hub\n"
             else:
@@ -488,7 +547,7 @@ CMD ["python", "app.py"]
                         new = new.replace("app.run(debug=True)", "app.run(host='0.0.0.0', port=7860, debug=True)")
                         files[fname] = new
 
-        elif sdk == "gradio":
+        elif config_key == "gradio" or framework == "gradio":
             if "requirements.txt" not in files:
                 files["requirements.txt"] = "gradio\nhuggingface_hub\n"
             else:
@@ -515,7 +574,7 @@ CMD ["python", "app.py"]
                     new_content = re.sub(r',\s*\)', ')', new_content)
                     files[fname] = new_content
 
-        elif sdk == "streamlit":
+        elif config_key == "streamlit" or framework == "streamlit":
             if "requirements.txt" not in files:
                 files["requirements.txt"] = "streamlit\nhuggingface_hub\n"
             else:
@@ -525,55 +584,12 @@ CMD ["python", "app.py"]
                 if "huggingface_hub" not in req.lower():
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
+            # Inject Dockerfile for Streamlit if using docker SDK
+            if "Dockerfile" not in files and CONFIG and CONFIG['spaces']['streamlit'].get('dockerfile_content'):
+                files["Dockerfile"] = CONFIG['spaces']['streamlit']['dockerfile_content'].strip()
 
-        # Auto-generate README.md with correct frontmatter
-        if "README.md" not in files:
-            if sdk == "docker":
-                readme_content = f"""---
-title: {space_name}
-emoji: 🚀
-colorFrom: blue
-colorTo: green
-sdk: docker
-sdk_version: "3.9"
-app_file: app.py
-pinned: false
----
-
-# {space_name}
-Deployed automatically by GrishteSync.
-"""
-            elif sdk == "gradio":
-                readme_content = f"""---
-title: {space_name}
-emoji: 🎨
-colorFrom: purple
-colorTo: pink
-sdk: gradio
-sdk_version: "4.0"
-app_file: app.py
-pinned: false
----
-
-# {space_name}
-Gradio app built with GrishteSync.
-"""
-            else:
-                readme_content = f"""---
-title: {space_name}
-emoji: 📊
-colorFrom: red
-colorTo: yellow
-sdk: streamlit
-sdk_version: "1.28"
-app_file: app.py
-pinned: false
----
-
-# {space_name}
-Streamlit app built with GrishteSync.
-"""
-            files["README.md"] = readme_content
+        # Auto-generate README.md from config
+        files["README.md"] = generate_readme(space_name, config_key)
 
         # Use huggingface_hub to create and upload
         api = HfApi(token=HF_API_TOKEN)
@@ -589,17 +605,17 @@ Streamlit app built with GrishteSync.
         # Check if space exists, create if not
         try:
             if not repo_exists(repo_id, repo_type="space", token=HF_API_TOKEN):
-                # Create space with proper SDK
+                # Get SDK from config
+                sdk_type = CONFIG['spaces'][config_key]['sdk'] if CONFIG else "gradio"
                 create_repo(
                     repo_id=repo_id,
                     repo_type="space",
-                    space_sdk=sdk,
+                    space_sdk=sdk_type,
                     token=HF_API_TOKEN,
                     exist_ok=True
                 )
-                time.sleep(5)  # Wait for space initialization
+                time.sleep(5)
         except Exception as e:
-            # Some versions of huggingface_hub may have different parameters
             # Fallback: try without space_sdk
             try:
                 create_repo(
@@ -655,7 +671,7 @@ Streamlit app built with GrishteSync.
             "status": "success",
             "space_url": space_url,
             "space_full_name": repo_id,
-            "sdk": sdk,
+            "sdk": config_key,
             "deploy_time": round(time.time() - start_time, 1)
         })
 
@@ -773,7 +789,7 @@ Do not include any explanations or markdown outside the JSON."""
 # ---------- Health check ----------
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "0.9"})
+    return jsonify({"status": "GrishteSync backend running", "version": "1.0"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
