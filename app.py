@@ -1,4 +1,4 @@
-# GrishteSync v0.7 – Multi‑Prompt, Auto‑README, Live Console, Diagnose & Fix
+# GrishteSync v0.8 – Direct HF API (no SDK version issues)
 import os
 import re
 import json
@@ -11,7 +11,7 @@ import requests
 from flask import Flask, request, jsonify, redirect, make_response
 from flask_cors import CORS
 from urllib.parse import urlencode
-from huggingface_hub import HfApi, create_repo, repo_exists
+from huggingface_hub import HfApi, repo_exists  # only for upload & existence check
 
 app = Flask(__name__)
 
@@ -51,7 +51,7 @@ GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL     = "https://github.com/login/oauth/access_token"
 GITHUB_API_URL       = "https://api.github.com"
 
-HF_API_TOKEN = os.environ.get("HF_API_TOKEN")  # Server token – users never see it
+HF_API_TOKEN = os.environ.get("HF_API_TOKEN")  # Server token
 
 # ---------- Multi‑Prompt Loader ----------
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), 'prompts')
@@ -415,7 +415,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (with auto‑README) ----------
+# ---------- Deploy to Hugging Face (Direct API, no SDK version issue) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     start_time = time.time()
@@ -463,7 +463,7 @@ def deploy_hf():
         elif framework == "streamlit":
             sdk = "streamlit"
 
-        # Framework-specific fixes
+        # Framework-specific fixes (same as before)
         if sdk == "docker":
             if "requirements.txt" not in files:
                 files["requirements.txt"] = "flask\nhuggingface_hub\n"
@@ -527,7 +527,7 @@ CMD ["python", "app.py"]
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
 
-        # ----- AUTO‑GENERATE README.md with correct HF frontmatter -----
+        # ----- Auto‑generate README.md -----
         if "README.md" not in files:
             if sdk == "docker":
                 readme_content = f"""---
@@ -576,7 +576,7 @@ Streamlit app built with GrishteSync.
 """
             files["README.md"] = readme_content
 
-        # ----- HF API -----
+        # ----- Create or get HF Space using direct HTTP API (bypasses huggingface_hub's SDK restriction) -----
         api = HfApi(token=hf_token)
         try:
             whoami = api.whoami()
@@ -585,16 +585,28 @@ Streamlit app built with GrishteSync.
             return jsonify({"error": f"Invalid HF token: {str(e)}"}), 401
 
         repo_id = f"{hf_username}/{space_name}"
-        if sdk not in ("gradio", "streamlit", "docker", "static"):
-            sdk = "streamlit"
+        # Check if space exists
+        space_exists = repo_exists(repo_id, repo_type="space", token=hf_token)
 
-        if not repo_exists(repo_id, repo_type="space", token=hf_token):
-            try:
-                create_repo(repo_id, repo_type="space", space_sdk=sdk, token=hf_token, exist_ok=True)
-                time.sleep(5)
-            except Exception as e:
-                return jsonify({"error": f"Failed to create Space: {str(e)}"}), 500
+        if not space_exists:
+            # Use direct HTTP API to create the space (supports all SDKs correctly)
+            create_url = "https://huggingface.co/api/spaces"
+            headers = {
+                "Authorization": f"Bearer {hf_token}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "name": space_name,
+                "sdk": sdk,   # 'streamlit', 'gradio', 'docker', 'static'
+                "private": False
+            }
+            create_resp = requests.post(create_url, headers=headers, json=payload, timeout=30)
+            if create_resp.status_code not in [200, 201]:
+                error_detail = create_resp.text
+                return jsonify({"error": f"Failed to create Space: {error_detail}"}), 500
+            time.sleep(5)  # wait for space to be ready
 
+        # Upload files using huggingface_hub (reliable)
         for filepath, content in files.items():
             file_obj = io.BytesIO(content.encode("utf-8"))
             try:
@@ -739,7 +751,6 @@ Do not include any explanations or markdown outside the JSON."""
         )
         resp.raise_for_status()
         ai_content = resp.json()["choices"][0]["message"]["content"].strip()
-        # Parse JSON similarly to generate endpoint
         ai_content = re.sub(r'^```(?:json)?\s*', '', ai_content)
         ai_content = re.sub(r'\s*```$', '', ai_content)
         start_idx = ai_content.find('{')
@@ -756,7 +767,7 @@ Do not include any explanations or markdown outside the JSON."""
 # ---------- Health check ----------
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "0.7"})
+    return jsonify({"status": "GrishteSync backend running", "version": "0.8"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
