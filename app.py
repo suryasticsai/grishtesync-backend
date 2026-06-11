@@ -1,4 +1,4 @@
-# GrishteSync v0.8 – Direct HF API (no SDK version issues)
+# GrishteSync v0.9 – Fixed HF Space Creation with huggingface_hub
 import os
 import re
 import json
@@ -11,7 +11,7 @@ import requests
 from flask import Flask, request, jsonify, redirect, make_response
 from flask_cors import CORS
 from urllib.parse import urlencode
-from huggingface_hub import HfApi, repo_exists  # only for upload & existence check
+from huggingface_hub import HfApi, create_repo, repo_exists
 
 app = Flask(__name__)
 
@@ -51,7 +51,7 @@ GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL     = "https://github.com/login/oauth/access_token"
 GITHUB_API_URL       = "https://api.github.com"
 
-HF_API_TOKEN = os.environ.get("HF_API_TOKEN")  # Server token
+HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
 
 # ---------- Multi‑Prompt Loader ----------
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), 'prompts')
@@ -415,7 +415,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (Direct API, no SDK version issue) ----------
+# ---------- Deploy to Hugging Face (using huggingface_hub) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     start_time = time.time()
@@ -428,8 +428,7 @@ def deploy_hf():
         if not repo_full_name:
             return jsonify({"error": "repo_full_name is required"}), 400
 
-        hf_token = HF_API_TOKEN
-        if not hf_token:
+        if not HF_API_TOKEN:
             return jsonify({"error": "HF_API_TOKEN not configured on server"}), 500
 
         if "/" in repo_full_name:
@@ -463,7 +462,7 @@ def deploy_hf():
         elif framework == "streamlit":
             sdk = "streamlit"
 
-        # Framework-specific fixes (same as before)
+        # Framework-specific fixes
         if sdk == "docker":
             if "requirements.txt" not in files:
                 files["requirements.txt"] = "flask\nhuggingface_hub\n"
@@ -527,7 +526,7 @@ CMD ["python", "app.py"]
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
 
-        # ----- Auto‑generate README.md -----
+        # Auto-generate README.md with correct frontmatter
         if "README.md" not in files:
             if sdk == "docker":
                 readme_content = f"""---
@@ -559,7 +558,7 @@ pinned: false
 # {space_name}
 Gradio app built with GrishteSync.
 """
-            else:  # streamlit
+            else:
                 readme_content = f"""---
 title: {space_name}
 emoji: 📊
@@ -576,8 +575,9 @@ Streamlit app built with GrishteSync.
 """
             files["README.md"] = readme_content
 
-        # ----- Create or get HF Space using direct HTTP API (bypasses huggingface_hub's SDK restriction) -----
-        api = HfApi(token=hf_token)
+        # Use huggingface_hub to create and upload
+        api = HfApi(token=HF_API_TOKEN)
+        
         try:
             whoami = api.whoami()
             hf_username = whoami["name"]
@@ -585,28 +585,34 @@ Streamlit app built with GrishteSync.
             return jsonify({"error": f"Invalid HF token: {str(e)}"}), 401
 
         repo_id = f"{hf_username}/{space_name}"
-        # Check if space exists
-        space_exists = repo_exists(repo_id, repo_type="space", token=hf_token)
+        
+        # Check if space exists, create if not
+        try:
+            if not repo_exists(repo_id, repo_type="space", token=HF_API_TOKEN):
+                # Create space with proper SDK
+                create_repo(
+                    repo_id=repo_id,
+                    repo_type="space",
+                    space_sdk=sdk,
+                    token=HF_API_TOKEN,
+                    exist_ok=True
+                )
+                time.sleep(5)  # Wait for space initialization
+        except Exception as e:
+            # Some versions of huggingface_hub may have different parameters
+            # Fallback: try without space_sdk
+            try:
+                create_repo(
+                    repo_id=repo_id,
+                    repo_type="space",
+                    token=HF_API_TOKEN,
+                    exist_ok=True
+                )
+                time.sleep(5)
+            except Exception as e2:
+                return jsonify({"error": f"Failed to create Space: {str(e2)}"}), 500
 
-        if not space_exists:
-            # Use direct HTTP API to create the space (supports all SDKs correctly)
-            create_url = "https://huggingface.co/api/spaces"
-            headers = {
-                "Authorization": f"Bearer {hf_token}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "name": space_name,
-                "sdk": sdk,   # 'streamlit', 'gradio', 'docker', 'static'
-                "private": False
-            }
-            create_resp = requests.post(create_url, headers=headers, json=payload, timeout=30)
-            if create_resp.status_code not in [200, 201]:
-                error_detail = create_resp.text
-                return jsonify({"error": f"Failed to create Space: {error_detail}"}), 500
-            time.sleep(5)  # wait for space to be ready
-
-        # Upload files using huggingface_hub (reliable)
+        # Upload all files
         for filepath, content in files.items():
             file_obj = io.BytesIO(content.encode("utf-8"))
             try:
@@ -615,7 +621,7 @@ Streamlit app built with GrishteSync.
                     path_in_repo=filepath,
                     repo_id=repo_id,
                     repo_type="space",
-                    token=hf_token
+                    token=HF_API_TOKEN
                 )
             except Exception as e:
                 return jsonify({"error": f"Failed to upload {filepath}: {str(e)}"}), 500
@@ -720,7 +726,7 @@ def get_hf_logs():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---------- Diagnose & Fix endpoint ----------
+# ---------- Diagnose & Fix ----------
 @app.route("/api/diagnose", methods=["POST"])
 def diagnose():
     data = request.get_json()
@@ -767,7 +773,7 @@ Do not include any explanations or markdown outside the JSON."""
 # ---------- Health check ----------
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "0.8"})
+    return jsonify({"status": "GrishteSync backend running", "version": "0.9"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
