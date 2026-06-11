@@ -1,100 +1,58 @@
-# GrishteSync Configuration
-# Edit this file to change behavior without modifying code
-
-huggingface:
-  # Default SDK versions
-  sdk_versions:
-    gradio: "4.0"
-    docker: "3.9"
-    streamlit: "1.28"
+# Hugging Face Space Configuration
+spaces:
+  docker:
+    title: "{space_name}"
+    emoji: 🚀
+    colorFrom: blue
+    colorTo: green
+    sdk: docker
+    sdk_version: "3.9"
+    python_version: "3.10"
+    app_file: app.py
+    pinned: false
+    footer_text: "Deployed automatically by GrishteSync."
+    dockerfile_content: |
+      FROM python:3.9-slim-buster
+      WORKDIR /app
+      COPY requirements.txt .
+      RUN pip install --no-cache-dir -r requirements.txt
+      COPY . .
+      EXPOSE 7860
+      CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
   
-  # Default Python version
-  python_version: "3.10"
+  gradio:
+    title: "{space_name}"
+    emoji: 🎨
+    colorFrom: purple
+    colorTo: pink
+    sdk: gradio
+    sdk_version: "5.0"
+    python_version: "3.10"
+    app_file: app.py
+    pinned: false
+    footer_text: "Gradio app built with GrishteSync."
   
-  # README templates (use {space_name} as placeholder)
-  readme_templates:
-    docker: |
-      ---
-      title: "{space_name}"
-      emoji: 🚀
-      colorFrom: blue
-      colorTo: green
-      sdk: docker
-      sdk_version: "3.9"
-      app_file: app.py
-      pinned: false
-      ---
-      
-      # {space_name}
-      Deployed automatically by GrishteSync.
-      
-      Made with ❤️ by Suryasticsai
-    
-    gradio: |
-      ---
-      title: "{space_name}"
-      emoji: 🎨
-      colorFrom: purple
-      colorTo: pink
-      sdk: gradio
-      sdk_version: "4.0"
-      python_version: "3.10"
-      app_file: app.py
-      pinned: false
-      ---
-      
-      # {space_name}
-      AI-generated Gradio app built with GrishteSync.
-      
-      Made with ❤️ by Suryasticsai
-    
-    streamlit: |
-      ---
-      title: "{space_name}"
-      emoji: 📊
-      colorFrom: red
-      colorTo: yellow
-      sdk: streamlit
-      sdk_version: "1.28"
-      python_version: "3.10"
-      app_file: app.py
-      pinned: false
-      ---
-      
-      # {space_name}
-      AI-generated Streamlit app built with GrishteSync.
-      
-      Made with ❤️ by Suryasticsai
+  streamlit:
+    title: "{space_name}"
+    emoji: 📊
+    colorFrom: green
+    colorTo: emerald
+    sdk: docker
+    sdk_version: "3.9"
+    python_version: "3.10"
+    app_file: app.py
+    pinned: false
+    footer_text: "Streamlit app built with GrishteSync."
+    dockerfile_content: |
+      FROM python:3.9-slim-buster
+      WORKDIR /app
+      COPY requirements.txt .
+      RUN pip install --no-cache-dir -r requirements.txt
+      COPY . .
+      EXPOSE 7860
+      CMD ["streamlit", "run", "app.py", "--server.port=7860", "--server.address=0.0.0.0"]
 
-  # Required files for each SDK
-  required_files:
-    docker:
-      - Dockerfile
-      - requirements.txt
-    gradio:
-      - requirements.txt
-    streamlit:
-      - requirements.txt
-
-  # Port configuration
-  app_port: 7860
-
-github:
-  # PR template
-  pr_template: |
-    ## 🌀 GrishteSync Automatic Pull Request
-    
-    **Version:** v{version}
-    
-    **Files changed:**
-    {files_list}
-    
-    *Created with [GrishteSync](https://suryasticsai.github.io/GrishteSync)*
-
-app:
-  # Version
-  version: "1.0.0"
-  
-  # Features
-  enable_diagnose: true
-  enable_live_logs: true
+defaults:
+  license: "MIT"
+  author: "GrishteSync"
+  repository: "https://github.com/suryasticsai/GrishteSync"
