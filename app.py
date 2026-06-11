@@ -1,4 +1,4 @@
-# GrishteSync v1.1 – Dynamic Version Fetching (Gradio, Python)
+# GrishteSync v1.2 – Force correct Dockerfile (python:3-slim)
 import os
 import re
 import json
@@ -50,7 +50,6 @@ def load_config():
         with open(config_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
     except FileNotFoundError:
-        # Default config (will be used if file missing)
         return {
             'spaces': {
                 'docker': {
@@ -60,11 +59,10 @@ def load_config():
                     'app_file': 'app.py',
                     'pinned': False,
                     'footer_text': 'Deployed automatically by GrishteSync.',
-                    'dockerfile_content': None  # Will be generated dynamically
                 },
                 'gradio': {
                     'sdk': 'gradio',
-                    'sdk_version': '5.0',   # will be overridden by dynamic version
+                    'sdk_version': '5.0',
                     'python_version': '3.10',
                     'app_file': 'app.py',
                     'pinned': False,
@@ -76,8 +74,7 @@ def load_config():
                     'python_version': '3.10',
                     'app_file': 'app.py',
                     'pinned': False,
-                    'footer_text': 'Streamlit app built with GrishteSync.',
-                    'dockerfile_content': None
+                    'footer_text': 'Streamlit app built with GrishteSync.'
                 }
             },
             'defaults': {'license': 'MIT', 'author': 'GrishteSync'}
@@ -102,12 +99,11 @@ GITHUB_API_URL       = "https://api.github.com"
 
 HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
 
-# ---------- Dynamic Version Fetching (with caching) ----------
+# ---------- Dynamic Version Fetching (cached) ----------
 _version_cache = {}
 _cache_ttl = 3600  # 1 hour
 
 def get_latest_pypi_version(package_name):
-    """Return the latest version of a package from PyPI, with caching."""
     now = time.time()
     if package_name in _version_cache:
         cached_time, version = _version_cache[package_name]
@@ -176,22 +172,19 @@ def sanitize_space_name(name):
     return name[:96] or "grishte-app"
 
 def generate_readme(space_name, config_key, gradio_version=None):
-    """Generate README.md with dynamic Gradio version if applicable."""
     if not CONFIG:
         return f"# {space_name}\n\nDeployed with GrishteSync."
     
     space_config = CONFIG['spaces'].get(config_key, CONFIG['spaces']['docker']).copy()
     
-    # Override Gradio version if provided and config_key is gradio
     if config_key == "gradio" and gradio_version:
         space_config['sdk_version'] = gradio_version
     
-    # Replace placeholders
     config_copy = {}
     for key, value in space_config.items():
         if isinstance(value, str) and '{space_name}' in value:
             config_copy[key] = value.format(space_name=space_name)
-        elif key not in ['dockerfile_content', 'footer_text']:
+        elif key not in ['footer_text']:
             config_copy[key] = value
     
     yaml_lines = ["---"]
@@ -210,9 +203,9 @@ def generate_readme(space_name, config_key, gradio_version=None):
     
     return "\n".join(yaml_lines)
 
-def generate_dockerfile(config_key):
-    """Generate Dockerfile content dynamically using python:3-slim floating tag."""
-    if config_key == "streamlit":
+def generate_dockerfile(app_type):
+    """Return a Dockerfile with python:3-slim (always latest Python 3)."""
+    if app_type == "streamlit":
         return """FROM python:3-slim
 WORKDIR /app
 COPY requirements.txt .
@@ -221,7 +214,7 @@ COPY . .
 EXPOSE 7860
 CMD ["streamlit", "run", "app.py", "--server.port=7860", "--server.address=0.0.0.0"]
 """
-    else:  # flask/docker
+    else:  # flask / general
         return """FROM python:3-slim
 WORKDIR /app
 COPY requirements.txt .
@@ -557,7 +550,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (Dynamic Versions) ----------
+# ---------- Deploy to Hugging Face (Always overwrite Dockerfile) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     start_time = time.time()
@@ -615,19 +608,19 @@ def deploy_hf():
         else:
             config_key = "docker"
 
-        # ----- Dynamic Version Fetching -----
+        # ----- Fetch latest Gradio version if needed -----
         gradio_latest = None
         if config_key == "gradio":
             gradio_latest = get_latest_pypi_version("gradio")
-            if gradio_latest:
-                print(f"Using Gradio version {gradio_latest}")
-            else:
-                gradio_latest = "5.0.0"  # fallback
-                print("Failed to fetch Gradio version, using fallback 5.0.0")
+            if not gradio_latest:
+                gradio_latest = "5.0.0"
 
-        # ----- Framework‑specific fixes (with dynamic versions) -----
-        if config_key == "docker" or framework == "flask":
-            # requirements.txt
+        # ----- Framework‑specific file generation (FORCE correct Dockerfile) -----
+        if config_key in ["docker", "streamlit"]:
+            # Always set a correct Dockerfile (overwrites any existing)
+            files["Dockerfile"] = generate_dockerfile(config_key)
+            
+            # Ensure requirements.txt
             if "requirements.txt" not in files:
                 files["requirements.txt"] = "flask\ngunicorn\nhuggingface_hub\n"
             else:
@@ -640,11 +633,7 @@ def deploy_hf():
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
             
-            # Dockerfile (dynamic, uses python:3-slim floating tag)
-            if "Dockerfile" not in files:
-                files["Dockerfile"] = generate_dockerfile(config_key)
-            
-            # Fix Flask app port
+            # Fix Flask port
             for fname, content in files.items():
                 if fname.endswith(".py") and "app.run" in content:
                     if "port=7860" not in content.lower():
@@ -652,13 +641,12 @@ def deploy_hf():
                         new = new.replace("app.run(debug=True)", "app.run(host='0.0.0.0', port=7860, debug=True)")
                         files[fname] = new
 
-        elif config_key == "gradio" or framework == "gradio":
+        elif config_key == "gradio":
             # requirements.txt with dynamic Gradio version
             if "requirements.txt" not in files:
                 files["requirements.txt"] = f"gradio=={gradio_latest}\nhuggingface_hub\n"
             else:
                 req = files["requirements.txt"]
-                # Remove any existing gradio line and add the dynamic version
                 req_lines = [line for line in req.split('\n') if not line.lower().startswith('gradio')]
                 req_lines.append(f"gradio=={gradio_latest}")
                 if "huggingface_hub" not in req.lower():
@@ -683,10 +671,10 @@ def deploy_hf():
                     new_content = re.sub(r',\s*\)', ')', new_content)
                     files[fname] = new_content
 
-        # Generate README.md with dynamic Gradio version if needed
+        # Generate README.md (always overwrite)
         files["README.md"] = generate_readme(space_name, config_key, gradio_latest)
 
-        # ----- Git Operations (same as before) -----
+        # ----- Git operations (clone, write, push) -----
         temp_dir = tempfile.mkdtemp()
         space_repo_url = f"https://{username}:{HF_API_TOKEN}@huggingface.co/spaces/{username}/{space_name}"
         
@@ -714,7 +702,7 @@ def deploy_hf():
             except Exception as e:
                 return jsonify({"error": f"Failed to create Space: {str(e)}"}), 500
         
-        # Write files
+        # Write all files (overwriting existing)
         for filepath, content in files.items():
             file_path = os.path.join(temp_dir, filepath)
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -754,7 +742,7 @@ def deploy_hf():
         
         space_url = f"https://huggingface.co/spaces/{username}/{space_name}"
         
-        # Update GitHub README with HF badge
+        # Update GitHub README with HF badge (optional)
         github_token = data.get("github_token") or request.headers.get("Authorization", "").replace("Bearer ", "").replace("token ", "")
         if github_token and repo_full_name and "/" in repo_full_name:
             try:
@@ -909,7 +897,7 @@ Do not include any explanations or markdown outside the JSON."""
 # ---------- Health check ----------
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "1.1"})
+    return jsonify({"status": "GrishteSync backend running", "version": "1.2"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
