@@ -1,4 +1,4 @@
-# GrishteSync v1.0 – External Config + Fixed HF Deployment
+# GrishteSync v1.0 – Git-Based HF Deployment (Reliable)
 import os
 import re
 import json
@@ -7,6 +7,9 @@ import time
 import traceback
 import datetime
 import io
+import shutil
+import tempfile
+import subprocess
 import requests
 import yaml
 from flask import Flask, request, jsonify, redirect, make_response
@@ -42,13 +45,11 @@ def add_cors_headers(response):
 
 # ---------- Load Configuration ----------
 def load_config():
-    """Load configuration from config.yaml file"""
     config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
     except FileNotFoundError:
-        # Return default config if file not found
         return {
             'spaces': {
                 'docker': {'sdk': 'docker', 'sdk_version': '3.9', 'python_version': '3.10', 'app_file': 'app.py', 'pinned': False},
@@ -113,27 +114,25 @@ def sanitize_space_name(name):
     name = name.strip('-')
     return name[:96] or "grishte-app"
 
-def generate_readme(space_name, sdk_type):
+def generate_readme(space_name, config_key):
     """Generate README.md content from config.yaml template"""
     if not CONFIG:
         return f"# {space_name}\n\nDeployed with GrishteSync."
     
-    space_config = CONFIG['spaces'].get(sdk_type, CONFIG['spaces']['docker'])
+    space_config = CONFIG['spaces'].get(config_key, CONFIG['spaces']['docker'])
     
-    # Replace {space_name} placeholder
     config_copy = {}
     for key, value in space_config.items():
-        if isinstance(value, str):
+        if isinstance(value, str) and '{space_name}' in value:
             config_copy[key] = value.format(space_name=space_name)
-        else:
+        elif key not in ['dockerfile_content', 'footer_text']:
             config_copy[key] = value
     
-    # Build YAML frontmatter
     yaml_lines = ["---"]
     for key, value in config_copy.items():
-        if key in ['dockerfile_content', 'footer_text']:
-            continue
-        if isinstance(value, bool):
+        if key == 'sdk_version':
+            yaml_lines.append(f'{key}: "{value}"')
+        elif isinstance(value, bool):
             yaml_lines.append(f"{key}: {str(value).lower()}")
         else:
             yaml_lines.append(f"{key}: {value}")
@@ -471,10 +470,12 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (using config.yaml) ----------
+# ---------- Deploy to Hugging Face (Git-Based - RELIABLE) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     start_time = time.time()
+    temp_dir = None
+    
     try:
         data = request.get_json(silent=True)
         if not data:
@@ -487,13 +488,21 @@ def deploy_hf():
         if not HF_API_TOKEN:
             return jsonify({"error": "HF_API_TOKEN not configured on server"}), 500
 
+        # Parse repo name and space name
         if "/" in repo_full_name:
+            username = repo_full_name.split("/")[0]
             raw_space_name = data.get("space_name", repo_full_name.split("/")[1])
         else:
+            # Try to get HF username from token
+            api = HfApi(token=HF_API_TOKEN)
+            try:
+                whoami = api.whoami()
+                username = whoami["name"]
+            except:
+                return jsonify({"error": "Could not determine HF username"}), 500
             raw_space_name = data.get("space_name", repo_full_name)
 
         space_name = sanitize_space_name(raw_space_name)
-        sdk = data.get("sdk", "streamlit")
         files = data.get("files", {})
 
         # Framework detection
@@ -524,22 +533,32 @@ def deploy_hf():
         # Framework-specific fixes
         if config_key == "docker" or framework == "flask":
             if "requirements.txt" not in files:
-                files["requirements.txt"] = "flask\nhuggingface_hub\n"
+                files["requirements.txt"] = "flask\ngunicorn\nhuggingface_hub\n"
             else:
                 req = files["requirements.txt"]
                 if "flask" not in req.lower():
                     req += "\nflask\n"
+                if "gunicorn" not in req.lower():
+                    req += "\ngunicorn\n"
                 if "huggingface_hub" not in req.lower():
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
+            
+            # Add Dockerfile from config or default
             if "Dockerfile" not in files:
-                files["Dockerfile"] = """FROM python:3.9-slim
+                if CONFIG and CONFIG['spaces'].get(config_key, {}).get('dockerfile_content'):
+                    files["Dockerfile"] = CONFIG['spaces'][config_key]['dockerfile_content']
+                else:
+                    files["Dockerfile"] = """FROM python:3.9-slim-buster
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-CMD ["python", "app.py"]
-""".strip()
+EXPOSE 7860
+CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
+"""
+            
+            # Fix Flask app to use correct host/port
             for fname, content in files.items():
                 if fname.endswith(".py") and "app.run" in content:
                     if "port=7860" not in content.lower():
@@ -557,6 +576,8 @@ CMD ["python", "app.py"]
                 if "huggingface_hub" not in req.lower():
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
+            
+            # Fix Gradio launch
             for fname, content in files.items():
                 if fname.endswith(".py") and "launch" in content:
                     new_content = content
@@ -574,77 +595,58 @@ CMD ["python", "app.py"]
                     new_content = re.sub(r',\s*\)', ')', new_content)
                     files[fname] = new_content
 
-        elif config_key == "streamlit" or framework == "streamlit":
-            if "requirements.txt" not in files:
-                files["requirements.txt"] = "streamlit\nhuggingface_hub\n"
-            else:
-                req = files["requirements.txt"]
-                if "streamlit" not in req.lower():
-                    req += "\nstreamlit\n"
-                if "huggingface_hub" not in req.lower():
-                    req += "\nhuggingface_hub\n"
-                files["requirements.txt"] = req
-            # Inject Dockerfile for Streamlit if using docker SDK
-            if "Dockerfile" not in files and CONFIG and CONFIG['spaces']['streamlit'].get('dockerfile_content'):
-                files["Dockerfile"] = CONFIG['spaces']['streamlit']['dockerfile_content'].strip()
-
-        # Auto-generate README.md from config
+        # Generate README.md from config
         files["README.md"] = generate_readme(space_name, config_key)
 
-        # Use huggingface_hub to create and upload
-        api = HfApi(token=HF_API_TOKEN)
+        # Create temp directory for Git operations
+        temp_dir = tempfile.mkdtemp()
+        space_repo_url = f"https://{HF_API_TOKEN}@huggingface.co/spaces/{username}/{space_name}"
         
-        try:
-            whoami = api.whoami()
-            hf_username = whoami["name"]
-        except Exception as e:
-            return jsonify({"error": f"Invalid HF token: {str(e)}"}), 401
-
-        repo_id = f"{hf_username}/{space_name}"
+        # Try to clone existing space, or create new one
+        clone_result = subprocess.run(
+            ["git", "clone", space_repo_url, temp_dir],
+            capture_output=True,
+            text=True
+        )
         
-        # Check if space exists, create if not
-        try:
-            if not repo_exists(repo_id, repo_type="space", token=HF_API_TOKEN):
-                # Get SDK from config
-                sdk_type = CONFIG['spaces'][config_key]['sdk'] if CONFIG else "gradio"
+        if clone_result.returncode != 0:
+            # Space doesn't exist, create it using huggingface_hub
+            try:
+                # Determine SDK for space creation
+                space_sdk = "docker" if config_key in ["docker", "streamlit"] else "gradio"
                 create_repo(
-                    repo_id=repo_id,
+                    repo_id=f"{username}/{space_name}",
                     repo_type="space",
-                    space_sdk=sdk_type,
+                    space_sdk=space_sdk,
                     token=HF_API_TOKEN,
                     exist_ok=True
                 )
-                time.sleep(5)
-        except Exception as e:
-            # Fallback: try without space_sdk
-            try:
-                create_repo(
-                    repo_id=repo_id,
-                    repo_type="space",
-                    token=HF_API_TOKEN,
-                    exist_ok=True
-                )
-                time.sleep(5)
-            except Exception as e2:
-                return jsonify({"error": f"Failed to create Space: {str(e2)}"}), 500
-
-        # Upload all files
-        for filepath, content in files.items():
-            file_obj = io.BytesIO(content.encode("utf-8"))
-            try:
-                api.upload_file(
-                    path_or_fileobj=file_obj,
-                    path_in_repo=filepath,
-                    repo_id=repo_id,
-                    repo_type="space",
-                    token=HF_API_TOKEN
-                )
+                time.sleep(3)  # Wait for space initialization
+                # Try cloning again
+                subprocess.run(["git", "clone", space_repo_url, temp_dir], check=True, capture_output=True)
             except Exception as e:
-                return jsonify({"error": f"Failed to upload {filepath}: {str(e)}"}), 500
-
-        space_url = f"https://huggingface.co/spaces/{repo_id}"
-
-        # Update GitHub README with HF badge (if GitHub token provided)
+                return jsonify({"error": f"Failed to create Space: {str(e)}"}), 500
+        
+        # Write all files to the temp directory
+        for filepath, content in files.items():
+            file_path = os.path.join(temp_dir, filepath)
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+        
+        # Git operations: add, commit, push
+        subprocess.run(["git", "-C", temp_dir, "add", "."], check=True, capture_output=True)
+        
+        # Check if there are changes to commit
+        status_result = subprocess.run(["git", "-C", temp_dir, "status", "--porcelain"], capture_output=True, text=True)
+        if status_result.stdout.strip():
+            subprocess.run(["git", "-C", temp_dir, "commit", "-m", f"Deploy from GrishteSync v{time.time()}"], check=True, capture_output=True)
+            push_result = subprocess.run(["git", "-C", temp_dir, "push"], capture_output=True, text=True)
+            if push_result.returncode != 0:
+                return jsonify({"error": f"Git push failed: {push_result.stderr}"}), 500
+        
+        space_url = f"https://huggingface.co/spaces/{username}/{space_name}"
+        
+        # Update GitHub README with HF badge if GitHub token provided
         github_token = data.get("github_token") or request.headers.get("Authorization", "").replace("Bearer ", "").replace("token ", "")
         if github_token and repo_full_name and "/" in repo_full_name:
             try:
@@ -670,17 +672,24 @@ CMD ["python", "app.py"]
         return jsonify({
             "status": "success",
             "space_url": space_url,
-            "space_full_name": repo_id,
+            "space_full_name": f"{username}/{space_name}",
             "sdk": config_key,
             "deploy_time": round(time.time() - start_time, 1)
         })
 
-    except Exception as e:
+    except subprocess.CalledProcessError as e:
         return jsonify({
-            "error": "Internal server error in deploy_hf",
-            "details": str(e),
+            "error": f"Git operation failed: {e.stderr if hasattr(e, 'stderr') else str(e)}",
             "trace": traceback.format_exc()
         }), 500
+    except Exception as e:
+        return jsonify({
+            "error": f"Internal server error: {str(e)}",
+            "trace": traceback.format_exc()
+        }), 500
+    finally:
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 # ---------- Get repo files ----------
 @app.route("/api/repo-files", methods=["POST"])
@@ -722,21 +731,24 @@ def get_repo_files():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---------- Get HF logs ----------
+# ---------- Get HF logs (SSE) ----------
 @app.route("/api/hf-logs", methods=["POST"])
 def get_hf_logs():
     data = request.get_json()
     space_name = data.get("space_name")
+    log_type = data.get("log_type", "build")  # 'build' or 'run'
     if not space_name:
         return jsonify({"error": "Missing space_name"}), 400
+    
     hf_token = HF_API_TOKEN
     headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
     try:
-        logs_url = f"https://huggingface.co/api/spaces/{space_name}/logs"
-        resp = requests.get(logs_url, headers=headers, timeout=10)
+        logs_url = f"https://huggingface.co/api/spaces/{space_name}/logs/{log_type}"
+        resp = requests.get(logs_url, headers=headers, timeout=10, stream=True)
         if resp.status_code == 200:
-            logs = resp.json()
-            return jsonify({"logs": logs})
+            # Return as JSON with logs array
+            logs = resp.json() if resp.headers.get('content-type') == 'application/json' else {"logs": resp.text}
+            return jsonify(logs)
         else:
             return jsonify({"logs": [], "error": f"Status {resp.status_code}"})
     except Exception as e:
