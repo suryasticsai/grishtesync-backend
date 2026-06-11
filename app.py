@@ -1,4 +1,4 @@
-# GrishteSync v0.4 – User HF tokens + auto-update GitHub README with HF link
+# GrishteSync v0.6 – Multi‑Prompt System (Generate, Fix, Improve UI, Add Feature, Refactor)
 import os
 import re
 import json
@@ -52,6 +52,27 @@ GITHUB_TOKEN_URL     = "https://github.com/login/oauth/access_token"
 GITHUB_API_URL       = "https://api.github.com"
 
 HF_API_TOKEN = os.environ.get("HF_API_TOKEN")  # fallback
+
+# ---------- Multi‑Prompt Loader ----------
+PROMPTS_DIR = os.path.join(os.path.dirname(__file__), 'prompts')
+
+def load_prompt(prompt_type):
+    """Load system prompt from prompts/{prompt_type}.txt. Fallback to generate.txt."""
+    filename = f"{prompt_type}.txt"
+    filepath = os.path.join(PROMPTS_DIR, filename)
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        fallback = os.path.join(PROMPTS_DIR, 'generate.txt')
+        try:
+            with open(fallback, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+        except:
+            return "You are an expert Python developer. Return ONLY valid JSON with a 'files' key."
+    except Exception as e:
+        print(f"Error loading prompt {prompt_type}: {e}")
+        return "You are an expert Python developer. Return ONLY valid JSON with a 'files' key."
 
 # ---------- Helpers ----------
 def safe_json(resp):
@@ -114,7 +135,7 @@ def github_callback():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---------- AI Generation (No logo watermark) ----------
+# ---------- AI Generation (Multi‑Prompt) ----------
 @app.route("/api/generate", methods=["POST"])
 def generate():
     start_time = time.time()
@@ -123,6 +144,7 @@ def generate():
         return jsonify({"error": "Invalid JSON body"}), 400
 
     prompt = data.get("prompt", "").strip()
+    prompt_type = data.get("prompt_type", "generate")
     repo_full_name = data.get("repo")
     user_token = None
 
@@ -135,40 +157,27 @@ def generate():
     if not prompt:
         return jsonify({"error": "Prompt is required."}), 400
 
-    system_prompt = (
-        "You are an expert Python developer. Generate a complete web application based on the user's description.\n"
-        "Return ONLY a valid JSON object. No markdown, no explanations. Just pure JSON.\n\n"
-        'Format: {"files": {"filename.py": "code here", "filename2.txt": "content here", "requirements.txt": "package1\\npackage2"}}\n\n'
-        "CRITICAL RULES:\n"
-        "- Use double quotes for all keys and strings\n"
-        "- Escape double quotes inside strings with backslash\n"
-        "- Use \\n for newlines inside code strings\n"
-        "- No trailing commas\n"
-        "- Response must start with { and end with }\n\n"
-        "FRAMEWORK GUIDELINES:\n"
-        "- If the user asks for a web UI with buttons, sliders, plots → use Gradio (import gradio as gr).\n"
-        "- If the user asks for a data dashboard or simple interactive app → use Streamlit.\n"
-        "- If the user asks for a traditional website, API, or backend → use Flask.\n"
-        "- For Flask: include app.run(host='0.0.0.0', port=7860) at the end.\n"
-        "- For Gradio: launch with demo.launch(server_name='0.0.0.0', server_port=7860). DO NOT add enable_queue, inline, or show_error.\n"
-        "- For Streamlit: no special port needed, just write the script.\n\n"
-        "REQUIREMENTS.TXT:\n"
-        "- Always include a requirements.txt with the necessary packages (flask, gradio, or streamlit).\n"
-        "- Also include 'huggingface_hub' in requirements.txt.\n\n"
-        "WATERMARK RULES:\n"
-        "1. Every Python file must start with:\n"
-        "# Created with GrishteSync\n"
-        "# https://suryasticsai.github.io/GrishteSync\n"
-        "# Suryasticsai | suryasticsai@gmail.com\n"
-        "2. The main app file must display somewhere: 'Made with GrishteSync | Suryasticsai | suryasticsai@gmail.com'\n"
-        "3. Do NOT include any logo image URL.\n"
-    )
+    # Load appropriate system prompt
+    system_prompt = load_prompt(prompt_type)
+
+    # Customize user message based on prompt_type
+    if prompt_type == "fix":
+        user_message = f"Fix the bug in this app: {prompt}"
+    elif prompt_type == "improve_ui":
+        user_message = f"Improve the UI/UX of this app: {prompt}"
+    elif prompt_type == "add_feature":
+        user_message = f"Add the following feature to the app: {prompt}"
+    elif prompt_type == "refactor":
+        user_message = f"Refactor the code of this app: {prompt}"
+    else:
+        user_message = f"Build a web app: {prompt}"
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Build a web app: {prompt}"}
+        {"role": "user", "content": user_message}
     ]
 
+    # Include existing repo context if available
     if repo_full_name and user_token:
         try:
             gh_headers = {"Authorization": f"Bearer {user_token}", "Accept": "application/vnd.github.v3+json"}
@@ -408,7 +417,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (with user token + update GitHub README) ----------
+# ---------- Deploy to Hugging Face (with GitHub README update) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     start_time = time.time()
@@ -421,14 +430,11 @@ def deploy_hf():
         if not repo_full_name:
             return jsonify({"error": "repo_full_name is required"}), 400
 
-        # User's HF token (if provided)
         user_hf_token = data.get("hf_token") or request.headers.get("X-HF-Token")
-        # Fallback to server token
         hf_token = user_hf_token if user_hf_token else HF_API_TOKEN
         if not hf_token:
             return jsonify({"error": "No Hugging Face token provided. Please connect your HF account."}), 400
 
-        # Handle names with or without slash
         if "/" in repo_full_name:
             raw_space_name = data.get("space_name", repo_full_name.split("/")[1])
         else:
@@ -438,7 +444,7 @@ def deploy_hf():
         sdk = data.get("sdk", "streamlit")
         files = data.get("files", {})
 
-        # Auto‑detect framework from code
+        # Framework detection
         framework = None
         for filename, content in files.items():
             if filename.endswith(".py"):
@@ -460,7 +466,7 @@ def deploy_hf():
         elif framework == "streamlit":
             sdk = "streamlit"
 
-        # ----- Framework‑specific fixes (same as before) -----
+        # Framework-specific fixes
         if sdk == "docker":
             if "requirements.txt" not in files:
                 files["requirements.txt"] = "flask\nhuggingface_hub\n"
@@ -524,7 +530,7 @@ CMD ["python", "app.py"]
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
 
-        # ----- HF API -----
+        # HF API
         api = HfApi(token=hf_token)
         try:
             whoami = api.whoami()
@@ -558,12 +564,11 @@ CMD ["python", "app.py"]
 
         space_url = f"https://huggingface.co/spaces/{repo_id}"
 
-        # ----- Update GitHub README with HF link -----
+        # Update GitHub README with HF badge
         github_token = data.get("github_token") or request.headers.get("Authorization", "").replace("Bearer ", "").replace("token ", "")
         if github_token and repo_full_name and "/" in repo_full_name:
             try:
                 gh_headers = {"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github.v3+json"}
-                # Get current README
                 readme_resp = requests.get(f"{GITHUB_API_URL}/repos/{repo_full_name}/contents/README.md", headers=gh_headers)
                 readme_content = ""
                 readme_sha = None
@@ -571,7 +576,6 @@ CMD ["python", "app.py"]
                     readme_data = readme_resp.json()
                     readme_content = base64.b64decode(readme_data["content"]).decode("utf-8")
                     readme_sha = readme_data["sha"]
-                # Add HF badge
                 badge_md = f"\n\n[![Hugging Face Space](https://img.shields.io/badge/🤗-Open%20in%20Spaces-blue)]({space_url})\n"
                 if badge_md not in readme_content:
                     readme_content += badge_md
@@ -581,11 +585,12 @@ CMD ["python", "app.py"]
                         payload["sha"] = readme_sha
                     requests.put(f"{GITHUB_API_URL}/repos/{repo_full_name}/contents/README.md", headers=gh_headers, json=payload)
             except:
-                pass  # non-critical
+                pass
 
         return jsonify({
             "status": "success",
             "space_url": space_url,
+            "space_full_name": repo_id,
             "sdk": sdk,
             "deploy_time": round(time.time() - start_time, 1)
         })
@@ -597,10 +602,70 @@ CMD ["python", "app.py"]
             "trace": traceback.format_exc()
         }), 500
 
+# ---------- Get repo files (browse & edit) ----------
+@app.route("/api/repo-files", methods=["POST"])
+def get_repo_files():
+    data = request.get_json()
+    repo_full_name = data.get("repo")
+    user_token = data.get("token")
+    if not repo_full_name or not user_token:
+        return jsonify({"error": "Missing repo or token"}), 400
+
+    gh_headers = {"Authorization": f"Bearer {user_token}", "Accept": "application/vnd.github.v3+json"}
+    url = f"{GITHUB_API_URL}/repos/{repo_full_name}/contents"
+    try:
+        resp = requests.get(url, headers=gh_headers, timeout=15)
+        if resp.status_code != 200:
+            return jsonify({"error": f"GitHub API error: {resp.status_code}"}), 500
+        items = resp.json()
+        files = []
+        for item in items:
+            if item["type"] == "file" and item["size"] < 500000:
+                files.append({
+                    "name": item["name"],
+                    "path": item["path"],
+                    "download_url": item["download_url"],
+                    "sha": item["sha"]
+                })
+            elif item["type"] == "dir":
+                sub_resp = requests.get(item["url"], headers=gh_headers)
+                if sub_resp.status_code == 200:
+                    for sub in sub_resp.json():
+                        if sub["type"] == "file" and sub["size"] < 500000:
+                            files.append({
+                                "name": sub["name"],
+                                "path": sub["path"],
+                                "download_url": sub["download_url"],
+                                "sha": sub["sha"]
+                            })
+        return jsonify({"files": files})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ---------- Get Hugging Face Space logs ----------
+@app.route("/api/hf-logs", methods=["POST"])
+def get_hf_logs():
+    data = request.get_json()
+    space_name = data.get("space_name")  # e.g., "username/space"
+    hf_token = data.get("hf_token") or HF_API_TOKEN
+    if not space_name:
+        return jsonify({"error": "Missing space_name"}), 400
+    headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
+    try:
+        logs_url = f"https://huggingface.co/api/spaces/{space_name}/logs"
+        resp = requests.get(logs_url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            logs = resp.json()
+            return jsonify({"logs": logs})
+        else:
+            return jsonify({"logs": [], "error": f"Status {resp.status_code}"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # ---------- Health check ----------
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "0.4"})
+    return jsonify({"status": "GrishteSync backend running", "version": "0.6"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
