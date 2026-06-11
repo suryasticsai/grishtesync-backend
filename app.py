@@ -1,4 +1,4 @@
-# GrishteSync v0.6 – Multi‑Prompt System (Generate, Fix, Improve UI, Add Feature, Refactor)
+# GrishteSync v0.6 – Multi‑Prompt, No User HF Token, Incremental Updates
 import os
 import re
 import json
@@ -18,7 +18,7 @@ app = Flask(__name__)
 # ---------- CORS ----------
 CORS(app, resources={r"/*": {
     "origins": "*",
-    "allow_headers": ["Content-Type", "Authorization", "X-HF-Token"],
+    "allow_headers": ["Content-Type", "Authorization"],
     "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 }})
 
@@ -27,7 +27,7 @@ def handle_preflight():
     if request.method == "OPTIONS":
         response = make_response()
         response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-HF-Token"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
         response.status_code = 200
         return response
@@ -35,7 +35,7 @@ def handle_preflight():
 @app.after_request
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-HF-Token"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     return response
 
@@ -51,7 +51,7 @@ GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL     = "https://github.com/login/oauth/access_token"
 GITHUB_API_URL       = "https://api.github.com"
 
-HF_API_TOKEN = os.environ.get("HF_API_TOKEN")  # fallback
+HF_API_TOKEN = os.environ.get("HF_API_TOKEN")  # Server token – users never see it
 
 # ---------- Multi‑Prompt Loader ----------
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), 'prompts')
@@ -135,7 +135,7 @@ def github_callback():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---------- AI Generation (Multi‑Prompt) ----------
+# ---------- AI Generation ----------
 @app.route("/api/generate", methods=["POST"])
 def generate():
     start_time = time.time()
@@ -157,10 +157,8 @@ def generate():
     if not prompt:
         return jsonify({"error": "Prompt is required."}), 400
 
-    # Load appropriate system prompt
     system_prompt = load_prompt(prompt_type)
 
-    # Customize user message based on prompt_type
     if prompt_type == "fix":
         user_message = f"Fix the bug in this app: {prompt}"
     elif prompt_type == "improve_ui":
@@ -177,7 +175,6 @@ def generate():
         {"role": "user", "content": user_message}
     ]
 
-    # Include existing repo context if available
     if repo_full_name and user_token:
         try:
             gh_headers = {"Authorization": f"Bearer {user_token}", "Accept": "application/vnd.github.v3+json"}
@@ -417,7 +414,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (with GitHub README update) ----------
+# ---------- Deploy to Hugging Face (server token only) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     start_time = time.time()
@@ -430,10 +427,9 @@ def deploy_hf():
         if not repo_full_name:
             return jsonify({"error": "repo_full_name is required"}), 400
 
-        user_hf_token = data.get("hf_token") or request.headers.get("X-HF-Token")
-        hf_token = user_hf_token if user_hf_token else HF_API_TOKEN
+        hf_token = HF_API_TOKEN
         if not hf_token:
-            return jsonify({"error": "No Hugging Face token provided. Please connect your HF account."}), 400
+            return jsonify({"error": "HF_API_TOKEN not configured on server"}), 500
 
         if "/" in repo_full_name:
             raw_space_name = data.get("space_name", repo_full_name.split("/")[1])
@@ -564,7 +560,7 @@ CMD ["python", "app.py"]
 
         space_url = f"https://huggingface.co/spaces/{repo_id}"
 
-        # Update GitHub README with HF badge
+        # Update GitHub README with HF badge (if GitHub token provided)
         github_token = data.get("github_token") or request.headers.get("Authorization", "").replace("Bearer ", "").replace("token ", "")
         if github_token and repo_full_name and "/" in repo_full_name:
             try:
@@ -602,7 +598,7 @@ CMD ["python", "app.py"]
             "trace": traceback.format_exc()
         }), 500
 
-# ---------- Get repo files (browse & edit) ----------
+# ---------- Get repo files ----------
 @app.route("/api/repo-files", methods=["POST"])
 def get_repo_files():
     data = request.get_json()
@@ -642,14 +638,14 @@ def get_repo_files():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---------- Get Hugging Face Space logs ----------
+# ---------- Get HF logs ----------
 @app.route("/api/hf-logs", methods=["POST"])
 def get_hf_logs():
     data = request.get_json()
-    space_name = data.get("space_name")  # e.g., "username/space"
-    hf_token = data.get("hf_token") or HF_API_TOKEN
+    space_name = data.get("space_name")
     if not space_name:
         return jsonify({"error": "Missing space_name"}), 400
+    hf_token = HF_API_TOKEN
     headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
     try:
         logs_url = f"https://huggingface.co/api/spaces/{space_name}/logs"
