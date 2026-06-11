@@ -1,4 +1,4 @@
-# GrishteSync v0.6 – Multi‑Prompt, No User HF Token, Incremental Updates
+# GrishteSync v0.7 – Multi‑Prompt, Auto‑README, Live Console, Diagnose & Fix
 import os
 import re
 import json
@@ -57,7 +57,6 @@ HF_API_TOKEN = os.environ.get("HF_API_TOKEN")  # Server token – users never se
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), 'prompts')
 
 def load_prompt(prompt_type):
-    """Load system prompt from prompts/{prompt_type}.txt. Fallback to generate.txt."""
     filename = f"{prompt_type}.txt"
     filepath = os.path.join(PROMPTS_DIR, filename)
     try:
@@ -167,6 +166,8 @@ def generate():
         user_message = f"Add the following feature to the app: {prompt}"
     elif prompt_type == "refactor":
         user_message = f"Refactor the code of this app: {prompt}"
+    elif prompt_type == "diagnose":
+        user_message = f"Diagnose the following error and provide a fixed version of the code: {prompt}"
     else:
         user_message = f"Build a web app: {prompt}"
 
@@ -414,7 +415,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (server token only) ----------
+# ---------- Deploy to Hugging Face (with auto‑README) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     start_time = time.time()
@@ -526,7 +527,56 @@ CMD ["python", "app.py"]
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
 
-        # HF API
+        # ----- AUTO‑GENERATE README.md with correct HF frontmatter -----
+        if "README.md" not in files:
+            if sdk == "docker":
+                readme_content = f"""---
+title: {space_name}
+emoji: 🚀
+colorFrom: blue
+colorTo: green
+sdk: docker
+sdk_version: "3.9"
+app_file: app.py
+pinned: false
+---
+
+# {space_name}
+Deployed automatically by GrishteSync.
+"""
+            elif sdk == "gradio":
+                readme_content = f"""---
+title: {space_name}
+emoji: 🎨
+colorFrom: purple
+colorTo: pink
+sdk: gradio
+sdk_version: "4.0"
+app_file: app.py
+pinned: false
+---
+
+# {space_name}
+Gradio app built with GrishteSync.
+"""
+            else:  # streamlit
+                readme_content = f"""---
+title: {space_name}
+emoji: 📊
+colorFrom: red
+colorTo: yellow
+sdk: streamlit
+sdk_version: "1.28"
+app_file: app.py
+pinned: false
+---
+
+# {space_name}
+Streamlit app built with GrishteSync.
+"""
+            files["README.md"] = readme_content
+
+        # ----- HF API -----
         api = HfApi(token=hf_token)
         try:
             whoami = api.whoami()
@@ -658,10 +708,55 @@ def get_hf_logs():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# ---------- Diagnose & Fix endpoint ----------
+@app.route("/api/diagnose", methods=["POST"])
+def diagnose():
+    data = request.get_json()
+    error_log = data.get("error_log", "")
+    code = data.get("code", "")
+    if not error_log:
+        return jsonify({"error": "Missing error_log"}), 400
+
+    system_prompt = """You are an expert debugging assistant. Given an error log and the code that caused it, provide a fixed version of the code.
+
+Return ONLY a JSON object with a "files" key containing the corrected files. Only include files that need to be changed.
+
+Example: {"files": {"app.py": "fixed code here", "requirements.txt": "updated packages"}}
+
+Do not include any explanations or markdown outside the JSON."""
+    user_message = f"Error log:\n{error_log}\n\nCurrent code:\n{code}\n\nPlease provide the fixed code."
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message}
+    ]
+
+    try:
+        resp = requests.post(GROQ_API_URL,
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+            json={"model": MODEL_NAME, "messages": messages, "temperature": 0.2},
+            timeout=60
+        )
+        resp.raise_for_status()
+        ai_content = resp.json()["choices"][0]["message"]["content"].strip()
+        # Parse JSON similarly to generate endpoint
+        ai_content = re.sub(r'^```(?:json)?\s*', '', ai_content)
+        ai_content = re.sub(r'\s*```$', '', ai_content)
+        start_idx = ai_content.find('{')
+        end_idx = ai_content.rfind('}')
+        if start_idx != -1 and end_idx != -1:
+            ai_content = ai_content[start_idx:end_idx+1]
+        fixed = json.loads(ai_content)
+        if "files" not in fixed:
+            fixed = {"files": fixed}
+        return jsonify(fixed)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # ---------- Health check ----------
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "0.6"})
+    return jsonify({"status": "GrishteSync backend running", "version": "0.7"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
