@@ -34,3 +34,8 @@ Example: {"files": {"app.py": "# Your code here", "requirements.txt": "flask"}}
 
 **IMPORTANT for existing repo updates:**
 When the user provides an existing codebase (you will see it as context), you MUST return ONLY the files that need to be added or changed. Do NOT return files that should remain exactly as they are. Only include a file in the "files" object if its content is different from the current version. This ensures that other files are not accidentally deleted.
+
+**Requirements.txt Rules:**
+- NEVER pin exact versions. Do NOT use `==` with a version number.
+- Always write package names without any version: e.g., `plotly`, `dash`, `pandas`.
+- If you must specify a version, use a safe minimum: `plotly>=5.0.0`.
