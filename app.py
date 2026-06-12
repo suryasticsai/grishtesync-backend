@@ -204,7 +204,6 @@ def generate_readme(space_name, config_key, gradio_version=None):
     return "\n".join(yaml_lines)
 
 def generate_dockerfile(app_type):
-    """Return a Dockerfile with python:3-slim (always latest Python 3)."""
     if app_type == "streamlit":
         return """FROM python:3-slim
 WORKDIR /app
@@ -214,7 +213,7 @@ COPY . .
 EXPOSE 7860
 CMD ["streamlit", "run", "app.py", "--server.port=7860", "--server.address=0.0.0.0"]
 """
-    else:  # flask / general
+    else:
         return """FROM python:3-slim
 WORKDIR /app
 COPY requirements.txt .
@@ -223,7 +222,6 @@ COPY . .
 EXPOSE 7860
 CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
 """
-
 # ---------- GitHub OAuth ----------
 @app.route("/auth/login")
 def github_login():
@@ -568,7 +566,7 @@ def deploy_hf():
         if not HF_API_TOKEN:
             return jsonify({"error": "HF_API_TOKEN not configured on server"}), 500
 
-        # Get HF username
+        # Determine HF username
         if "/" in repo_full_name:
             username = repo_full_name.split("/")[0]
             raw_space_name = data.get("space_name", repo_full_name.split("/")[1])
@@ -584,7 +582,7 @@ def deploy_hf():
         space_name = sanitize_space_name(raw_space_name)
         files = data.get("files", {})
 
-        # Framework detection
+        # ----- Framework detection (same as before) -----
         framework = None
         for filename, content in files.items():
             if filename.endswith(".py"):
@@ -615,11 +613,10 @@ def deploy_hf():
             if not gradio_latest:
                 gradio_latest = "5.0.0"
 
-        # ----- Framework‑specific file generation (FORCE correct Dockerfile) -----
+        # ----- Prepare files (ALWAYS inject correct Dockerfile) -----
         if config_key in ["docker", "streamlit"]:
-            # Always set a correct Dockerfile (overwrites any existing)
+            # Force the correct Dockerfile
             files["Dockerfile"] = generate_dockerfile(config_key)
-            
             # Ensure requirements.txt
             if "requirements.txt" not in files:
                 files["requirements.txt"] = "flask\ngunicorn\nhuggingface_hub\n"
@@ -632,7 +629,6 @@ def deploy_hf():
                 if "huggingface_hub" not in req.lower():
                     req += "\nhuggingface_hub\n"
                 files["requirements.txt"] = req
-            
             # Fix Flask port
             for fname, content in files.items():
                 if fname.endswith(".py") and "app.run" in content:
@@ -642,7 +638,6 @@ def deploy_hf():
                         files[fname] = new
 
         elif config_key == "gradio":
-            # requirements.txt with dynamic Gradio version
             if "requirements.txt" not in files:
                 files["requirements.txt"] = f"gradio=={gradio_latest}\nhuggingface_hub\n"
             else:
@@ -652,7 +647,6 @@ def deploy_hf():
                 if "huggingface_hub" not in req.lower():
                     req_lines.append("huggingface_hub")
                 files["requirements.txt"] = "\n".join(req_lines)
-            
             # Fix Gradio launch
             for fname, content in files.items():
                 if fname.endswith(".py") and "launch" in content:
@@ -671,16 +665,18 @@ def deploy_hf():
                     new_content = re.sub(r',\s*\)', ')', new_content)
                     files[fname] = new_content
 
-        # Generate README.md (always overwrite)
+        # Generate README (always overwrite)
         files["README.md"] = generate_readme(space_name, config_key, gradio_latest)
 
-        # ----- Git operations (clone, write, push) -----
+        # ----- Git operations with CLEAN wipe -----
         temp_dir = tempfile.mkdtemp()
         space_repo_url = f"https://{username}:{HF_API_TOKEN}@huggingface.co/spaces/{username}/{space_name}"
         
+        # Configure git identity
         subprocess.run(["git", "config", "--global", "user.email", "grishtesync@render.com"], check=False, capture_output=True)
         subprocess.run(["git", "config", "--global", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
         
+        # Try to clone (or create)
         clone_result = subprocess.run(
             ["git", "clone", space_repo_url, temp_dir],
             capture_output=True,
@@ -702,18 +698,30 @@ def deploy_hf():
             except Exception as e:
                 return jsonify({"error": f"Failed to create Space: {str(e)}"}), 500
         
-        # Write all files (overwriting existing)
+        # 🔥 CRITICAL: Remove all existing files (except .git)
+        for item in os.listdir(temp_dir):
+            if item == ".git":
+                continue
+            item_path = os.path.join(temp_dir, item)
+            if os.path.isdir(item_path):
+                shutil.rmtree(item_path)
+            else:
+                os.remove(item_path)
+        
+        # Write new files
         for filepath, content in files.items():
             file_path = os.path.join(temp_dir, filepath)
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
         
-        # Git add, commit, push
+        # Git add, commit, push (force)
         subprocess.run(["git", "-C", temp_dir, "add", "."], check=True, capture_output=True)
         
+        # Check if anything changed
         status_result = subprocess.run(["git", "-C", temp_dir, "status", "--porcelain"], capture_output=True, text=True)
         if status_result.stdout.strip():
+            # Set local identity again
             subprocess.run(["git", "-C", temp_dir, "config", "user.email", "grishtesync@render.com"], check=False, capture_output=True)
             subprocess.run(["git", "-C", temp_dir, "config", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
             
@@ -732,6 +740,7 @@ def deploy_hf():
                 if commit_result.returncode != 0:
                     return jsonify({"error": f"Git commit failed: {commit_result.stderr}"}), 500
             
+            # Force push to overwrite everything
             push_result = subprocess.run(
                 ["git", "-C", temp_dir, "push", "origin", "HEAD:main", "--force"],
                 capture_output=True,
@@ -739,7 +748,9 @@ def deploy_hf():
             )
             if push_result.returncode != 0:
                 return jsonify({"error": f"Git push failed: {push_result.stderr}"}), 500
-        
+        else:
+            print("No changes to commit – but we forced file removal; this should not happen. Check file writing.")
+
         space_url = f"https://huggingface.co/spaces/{username}/{space_name}"
         
         # Update GitHub README with HF badge (optional)
