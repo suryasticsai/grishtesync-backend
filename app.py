@@ -5,26 +5,31 @@ import base64
 import time
 import traceback
 import datetime
-import io
 import shutil
 import tempfile
 import subprocess
 import requests
-import yaml
 from flask import Flask, request, jsonify, redirect, make_response
 from flask_cors import CORS
 from urllib.parse import urlencode
 from huggingface_hub import HfApi, create_repo
-from packaging.version import parse
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*", "allow_headers": ["Content-Type", "Authorization"], "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]}})
+
+# ---------- Secure CORS Configuration ----------
+FRONTEND_URLS = [
+    "https://suryasticsai.github.io",
+    "http://localhost:3000",
+    "http://localhost:5000",
+    "https://grishtesync-backend.onrender.com",  # for testing
+]
+CORS(app, resources={r"/*": {"origins": FRONTEND_URLS, "allow_headers": ["Content-Type", "Authorization"], "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]}})
 
 @app.before_request
 def handle_preflight():
     if request.method == "OPTIONS":
         response = make_response()
-        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Origin"] = ",".join(FRONTEND_URLS)
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
         response.status_code = 200
@@ -32,10 +37,22 @@ def handle_preflight():
 
 @app.after_request
 def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
+    origin = request.headers.get("Origin")
+    if origin in FRONTEND_URLS:
+        response.headers["Access-Control-Allow-Origin"] = origin
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     return response
+
+# ---------- Environment Validation ----------
+def validate_env_vars():
+    required = ["GROQ_API_KEY", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"]
+    missing = [var for var in required if not os.environ.get(var)]
+    if missing:
+        print(f"⚠️ WARNING: Missing required env vars: {', '.join(missing)}")
+    if not os.environ.get("HF_API_TOKEN"):
+        print("⚠️ WARNING: HF_API_TOKEN not set. Hugging Face deployment will not work.")
+validate_env_vars()
 
 # ---------- Configuration ----------
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
@@ -50,7 +67,6 @@ GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_API_URL = "https://api.github.com"
 
 HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
-
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), 'prompts')
 
 # ---------- Helper: Load Prompt ----------
@@ -78,37 +94,47 @@ def load_prompt(prompt_type, context=None):
             print(f"Missing context key for {filename}: {e}")
     return content
 
-# ---------- Safety Net: Auto-fix Common Errors ----------
+# ---------- Enhanced Safety Net ----------
 def apply_safety_net(files):
+    """Fix common AI mistakes: typos, exact pins, missing torch, allow_flagging, block=True, watermark."""
     if "requirements.txt" in files:
         req = files["requirements.txt"]
+        # 1. typo fix
         req = req.replace("grado", "gradio")
+        # 2. exact version pins -> >=
         req = re.sub(r'\b([a-zA-Z0-9_-]+)==([\d.]+)\b', r'\1>=\2', req)
-        if "transformers" in req and "torch" not in req:
+        # 3. ensure torch if transformers present (case-insensitive)
+        if re.search(r'\btransformers\b', req, re.IGNORECASE) and not re.search(r'\btorch\b', req, re.IGNORECASE):
             req = req.rstrip() + "\ntorch>=2.0.0"
+        # 4. ensure dash-bootstrap-components version if dash used
+        if "dash" in req and "dash-bootstrap-components" in req:
+            req = re.sub(r'dash-bootstrap-components.*', 'dash-bootstrap-components>=2.0.0', req)
         files["requirements.txt"] = req
 
     if "app.py" in files:
         code = files["app.py"]
+        # Remove allow_flagging
         code = re.sub(r',?\s*allow_flagging\s*=\s*[^,)]+', '', code)
+        # Remove demo.queue()
         code = re.sub(r'demo\.queue\(\).*', '', code)
+        # Fix dash bootstrap 'block=True' -> style
+        code = re.sub(r'(dbc\.Button\([^)]*?)block=True', r'\1style={\'width\': \'100%\'}', code)
+        
+        # Inject watermark if missing
+        watermark = [
+            "# Created with GrishteSync",
+            "# https://suryasticsai.github.io/GrishteSync",
+            "# Suryasticsai | suryasticsai@gmail.com"
+        ]
+        if not all(line in code for line in watermark):
+            code = "\n".join(watermark) + "\n\n" + code
         files["app.py"] = code
 
-    watermark = [
-        "# Created with GrishteSync",
-        "# https://suryasticsai.github.io/GrishteSync",
-        "# Suryasticsai | suryasticsai@gmail.com"
-    ]
-    for fname, content in files.items():
-        if fname.endswith(".py"):
-            if not all(line in content for line in watermark):
-                content = "\n".join(watermark) + "\n\n" + content
-                files[fname] = content
     return files
 
 # ---------- Enhanced JSON Parser ----------
 def parse_ai_response(ai_content):
-    """Extract JSON from AI response – handles markdown, extra text, and malformed JSON."""
+    """Extract JSON from AI response – handles markdown, extra text, trailing commas, unescaped newlines."""
     # Remove markdown code blocks
     ai_content = re.sub(r'^```(?:json)?\s*', '', ai_content.strip(), flags=re.MULTILINE)
     ai_content = re.sub(r'\s*```$', '', ai_content.strip(), flags=re.MULTILINE)
@@ -116,11 +142,11 @@ def parse_ai_response(ai_content):
     start = ai_content.find('{')
     end = ai_content.rfind('}')
     if start == -1 or end <= start:
-        return None, f"No JSON object found. Raw response: {ai_content[:200]}"
+        return None, f"No JSON object found. Raw: {ai_content[:200]}"
 
     json_str = ai_content[start:end+1]
 
-    # Remove trailing commas
+    # Remove trailing commas before } or ]
     json_str = re.sub(r',\s*}', '}', json_str)
     json_str = re.sub(r',\s*]', ']', json_str)
 
@@ -155,15 +181,11 @@ def parse_ai_response(ai_content):
     try:
         return json.loads(json_str), None
     except json.JSONDecodeError as e:
-        # Try to salvage: remove lines with obvious errors (like allow_flagging)
+        # Salvage attempt: remove lines with known problematic patterns
         lines = json_str.split('\n')
         cleaned = []
         for line in lines:
-            if 'allow_flagging' in line:
-                continue
-            if 'demo.queue()' in line:
-                continue
-            if line.strip().startswith('//'):
+            if 'allow_flagging' in line or 'demo.queue()' in line or line.strip().startswith('//'):
                 continue
             cleaned.append(line)
         json_str = '\n'.join(cleaned)
@@ -294,7 +316,7 @@ def generate():
     except Exception as e:
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
-# ---------- Deployment Helpers (unchanged but included) ----------
+# ---------- Deployment Helpers ----------
 def split_inline_css_js(files):
     if 'index.html' not in files or len(files) > 1:
         return files
@@ -589,7 +611,7 @@ Deployed by GrishteSync
 
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "4.1"})
+    return jsonify({"status": "GrishteSync backend running", "version": "4.2"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
