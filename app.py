@@ -55,18 +55,12 @@ PROMPTS_DIR = os.path.join(os.path.dirname(__file__), 'prompts')
 
 # ---------- Helper: Load Prompt ----------
 def load_prompt(prompt_type, context=None):
-    """
-    Load a prompt file from the prompts/ directory.
-    prompt_type: planner, coder, editor, fixer, generate (fallback)
-    context: optional dict to format into the prompt
-    """
     filename = f"{prompt_type}.txt"
     filepath = os.path.join(PROMPTS_DIR, filename)
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read().strip()
     except FileNotFoundError:
-        # Fallback to generate.txt
         fallback = os.path.join(PROMPTS_DIR, "generate.txt")
         try:
             with open(fallback, 'r', encoding='utf-8') as f:
@@ -86,34 +80,20 @@ def load_prompt(prompt_type, context=None):
 
 # ---------- Safety Net: Auto-fix Common Errors ----------
 def apply_safety_net(files):
-    """
-    Automatically corrects common AI generation mistakes.
-    - Replaces 'grado' with 'gradio'
-    - Converts exact version pins (==) to >=
-    - Adds torch if transformers is present
-    - Removes allow_flagging and demo.queue()
-    - Ensures watermark comment in all Python files
-    """
     if "requirements.txt" in files:
         req = files["requirements.txt"]
-        # Fix typo
         req = req.replace("grado", "gradio")
-        # Convert == to >=
         req = re.sub(r'\b([a-zA-Z0-9_-]+)==([\d.]+)\b', r'\1>=\2', req)
-        # Add torch if transformers is present
         if "transformers" in req and "torch" not in req:
             req = req.rstrip() + "\ntorch>=2.0.0"
         files["requirements.txt"] = req
 
     if "app.py" in files:
         code = files["app.py"]
-        # Remove allow_flagging
         code = re.sub(r',?\s*allow_flagging\s*=\s*[^,)]+', '', code)
-        # Remove demo.queue()
         code = re.sub(r'demo\.queue\(\).*', '', code)
         files["app.py"] = code
 
-    # Watermark injection
     watermark = [
         "# Created with GrishteSync",
         "# https://suryasticsai.github.io/GrishteSync",
@@ -126,9 +106,74 @@ def apply_safety_net(files):
                 files[fname] = content
     return files
 
+# ---------- Enhanced JSON Parser ----------
+def parse_ai_response(ai_content):
+    """Extract JSON from AI response – handles markdown, extra text, and malformed JSON."""
+    # Remove markdown code blocks
+    ai_content = re.sub(r'^```(?:json)?\s*', '', ai_content.strip(), flags=re.MULTILINE)
+    ai_content = re.sub(r'\s*```$', '', ai_content.strip(), flags=re.MULTILINE)
+
+    start = ai_content.find('{')
+    end = ai_content.rfind('}')
+    if start == -1 or end <= start:
+        return None, f"No JSON object found. Raw response: {ai_content[:200]}"
+
+    json_str = ai_content[start:end+1]
+
+    # Remove trailing commas
+    json_str = re.sub(r',\s*}', '}', json_str)
+    json_str = re.sub(r',\s*]', ']', json_str)
+
+    # Fix unescaped newlines inside strings
+    def fix_unescaped_newlines(text):
+        result = []
+        in_string = False
+        escape = False
+        for ch in text:
+            if escape:
+                result.append(ch)
+                escape = False
+                continue
+            if ch == '\\':
+                escape = True
+                result.append(ch)
+                continue
+            if ch == '"':
+                in_string = not in_string
+                result.append(ch)
+                continue
+            if in_string and ch == '\n':
+                result.append('\\n')
+            elif in_string and ch == '\t':
+                result.append('\\t')
+            else:
+                result.append(ch)
+        return ''.join(result)
+
+    json_str = fix_unescaped_newlines(json_str)
+
+    try:
+        return json.loads(json_str), None
+    except json.JSONDecodeError as e:
+        # Try to salvage: remove lines with obvious errors (like allow_flagging)
+        lines = json_str.split('\n')
+        cleaned = []
+        for line in lines:
+            if 'allow_flagging' in line:
+                continue
+            if 'demo.queue()' in line:
+                continue
+            if line.strip().startswith('//'):
+                continue
+            cleaned.append(line)
+        json_str = '\n'.join(cleaned)
+        try:
+            return json.loads(json_str), None
+        except json.JSONDecodeError as e2:
+            return None, f"JSON parse error: {e2}. First 300 chars: {json_str[:300]}"
+
 # ---------- AI Call ----------
 def call_groq(messages):
-    """Send messages to Groq API and return the raw text response."""
     resp = requests.post(
         GROQ_API_URL,
         headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
@@ -138,115 +183,25 @@ def call_groq(messages):
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"].strip()
 
-def parse_ai_response(ai_content):
-    """Extract JSON from AI response (handles markdown fences)."""
-    ai_content = re.sub(r'^```(?:json)?\s*', '', ai_content.strip())
-    ai_content = re.sub(r'\s*```$', '', ai_content.strip())
-    start = ai_content.find('{')
-    end = ai_content.rfind('}')
-    if start == -1 or end <= start:
-        return None, "No JSON object found"
-    ai_content = ai_content[start:end+1]
-    ai_content = re.sub(r',\s*}', '}', ai_content)
-    ai_content = re.sub(r',\s*]', ']', ai_content)
-    # Fix unescaped newlines inside strings
-    def fix_newlines(text):
-        res, in_str, esc = [], False, False
-        for ch in text:
-            if esc:
-                res.append(ch); esc = False; continue
-            if ch == '\\':
-                res.append(ch); esc = True; continue
-            if ch == '"':
-                in_str = not in_str; res.append(ch); continue
-            if in_str and ch == '\n':
-                res.append('\\n')
-            elif in_str and ch == '\t':
-                res.append('\\t')
-            else:
-                res.append(ch)
-        return ''.join(res)
-    ai_content = fix_newlines(ai_content)
-    try:
-        return json.loads(ai_content), None
-    except json.JSONDecodeError as e:
-        return None, f"JSON parse error: {e}"
-
-# ---------- Modular Generation Pipeline ----------
-def generate_with_planner_and_coder(user_prompt, existing_files=None):
-    """
-    Uses planner.txt to create a plan, then coder.txt to generate code.
-    Returns a files dict.
-    """
-    # Step 1: Plan
-    planner_prompt = load_prompt("planner", context={"user_prompt": user_prompt})
-    messages = [{"role": "user", "content": planner_prompt}]
-    plan_raw = call_groq(messages)
-    # Extract plan JSON (simple: expect {"plan": [...]})
-    plan_json, err = parse_ai_response(plan_raw)
-    if err or not plan_json or "plan" not in plan_json:
-        # Fallback: treat the raw response as a plan (list of strings)
-        plan = [plan_raw]  # not ideal but better than nothing
-    else:
-        plan = plan_json["plan"]
-    plan_str = "\n".join([f"- {step}" for step in plan])
-
-    # Step 2: Generate code from plan
-    coder_prompt = load_prompt("coder", context={"plan": plan_str})
-    messages = [{"role": "user", "content": coder_prompt}]
-    code_raw = call_groq(messages)
-    files_dict, err = parse_ai_response(code_raw)
-    if err or not files_dict or "files" not in files_dict:
-        raise ValueError(f"Failed to generate code: {err}")
-    return files_dict["files"]
-
-def generate_with_editor(user_prompt, existing_files):
-    """Use editor.txt to modify existing files."""
-    context = {
-        "user_prompt": user_prompt,
-        "current_code": "\n".join([f"--- {fname} ---\n{content}" for fname, content in existing_files.items()])
-    }
-    editor_prompt = load_prompt("editor", context=context)
-    messages = [{"role": "user", "content": editor_prompt}]
-    response = call_groq(messages)
-    files_dict, err = parse_ai_response(response)
-    if err or not files_dict or "files" not in files_dict:
-        raise ValueError(f"Editor failed: {err}")
-    return files_dict["files"]
-
-def generate_with_fixer(error_log, broken_files):
-    """Use fixer.txt to repair code based on error logs."""
-    context = {
-        "error_log": error_log,
-        "current_code": "\n".join([f"--- {fname} ---\n{content}" for fname, content in broken_files.items()])
-    }
-    fixer_prompt = load_prompt("fixer", context=context)
-    messages = [{"role": "user", "content": fixer_prompt}]
-    response = call_groq(messages)
-    files_dict, err = parse_ai_response(response)
-    if err or not files_dict or "files" not in files_dict:
-        raise ValueError(f"Fixer failed: {err}")
-    return files_dict["files"]
-
-# ---------- Legacy simple generation (fallback) ----------
+# ---------- Generation Functions ----------
 def generate_simple(prompt, prompt_type, platform, repo_code=None):
-    """Original single‑prompt generation (used as fallback)."""
     system_prompt = load_prompt(prompt_type, None)
     user_message = f"Build a {'static website' if platform == 'github' else 'Python web app'}: {prompt}"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}]
     if repo_code:
         context = "Current codebase:\n" + "\n".join([f"\n--- {fname} ---\n{content}" for fname, content in repo_code.items()])
         messages.insert(0, {"role": "system", "content": context})
+
     ai_content = call_groq(messages)
     files_dict, err = parse_ai_response(ai_content)
     if err:
-        # Retry once with stricter instruction
+        # Retry with stricter instruction
         messages.append({"role": "assistant", "content": ai_content})
-        messages.append({"role": "user", "content": "Output ONLY valid JSON with 'files' key."})
+        messages.append({"role": "user", "content": "Output ONLY valid JSON with a 'files' key. No explanations, no markdown. Start with { and end with }."})
         ai_content = call_groq(messages)
         files_dict, err = parse_ai_response(ai_content)
-    if err:
-        raise ValueError(f"Generation failed: {err}")
+        if err:
+            raise ValueError(f"Failed to generate code: {err}")
     if "files" not in files_dict:
         files_dict = {"files": files_dict}
     return files_dict["files"]
@@ -309,7 +264,6 @@ def generate():
     if not user_prompt:
         return jsonify({"error": "Prompt is required."}), 400
 
-    # Fetch existing code if repo is provided
     existing_code = {}
     if repo_full_name and user_token:
         try:
@@ -326,30 +280,9 @@ def generate():
             pass
 
     try:
-        # Route based on prompt_type
-        if prompt_type == "generate":
-            # Use planner + coder for new apps
-            generated_files = generate_with_planner_and_coder(user_prompt, existing_code)
-        elif prompt_type in ["fix", "diagnose"]:
-            # For fix/diagnose, we need error logs (maybe from request)
-            error_log = data.get("error_log", "")
-            if not error_log and existing_code:
-                # If no error log but we have existing code, treat as generic fix
-                error_log = "User requested a fix for the code."
-            generated_files = generate_with_fixer(error_log, existing_code if existing_code else {})
-        elif prompt_type in ["improve_ui", "add_feature", "refactor"]:
-            # Use editor for modifications
-            if not existing_code:
-                return jsonify({"error": "Cannot edit without existing code. Provide a repo."}), 400
-            generated_files = generate_with_editor(user_prompt, existing_code)
-        else:
-            # Fallback to simple generation
-            generated_files = generate_simple(user_prompt, prompt_type, platform, existing_code)
-
-        # Apply safety net
+        generated_files = generate_simple(user_prompt, prompt_type, platform, existing_code)
         generated_files = apply_safety_net(generated_files)
 
-        # Post-process for GitHub static sites
         if platform == "github":
             generated_files = split_inline_css_js(generated_files)
 
@@ -361,9 +294,8 @@ def generate():
     except Exception as e:
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
-# ---------- Deployment Endpoints (unchanged except safety net applied) ----------
+# ---------- Deployment Helpers (unchanged but included) ----------
 def split_inline_css_js(files):
-    """If only index.html exists and contains <style> or <script>, split them."""
     if 'index.html' not in files or len(files) > 1:
         return files
     html = files['index.html']
@@ -393,6 +325,38 @@ def setup_git_identity():
     except:
         pass
 setup_git_identity()
+
+def enable_github_pages(repo_full_name, github_token, app_description):
+    owner, repo = repo_full_name.split('/')
+    gh_headers = {"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github.v3+json"}
+    pages_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/pages"
+    payload = {"source": {"branch": "main", "path": "/"}}
+    requests.post(pages_url, headers=gh_headers, json=payload)
+    readme_content = f"""# {repo} – Generated by GrishteSync
+
+**Generated on:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
+
+{app_description}
+
+## 🌐 Live Demo
+[![GitHub Pages](https://img.shields.io/badge/🌐-Live%20Demo-blue)](https://{owner}.github.io/{repo}/)
+
+## 📄 License
+MIT © GrishteSync | Suryasticsai
+"""
+    encoded = base64.b64encode(readme_content.encode()).decode()
+    readme_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/contents/README.md"
+    get_resp = requests.get(readme_url, headers=gh_headers)
+    payload_readme = {"message": "Add GitHub Pages documentation", "content": encoded, "branch": "main"}
+    if get_resp.status_code == 200:
+        payload_readme["sha"] = get_resp.json()["sha"]
+    requests.put(readme_url, headers=gh_headers, json=payload_readme)
+    return f"https://{owner}.github.io/{repo}/"
+
+def sanitize_space_name(name):
+    name = re.sub(r'[^a-zA-Z0-9-]', '-', name)
+    name = re.sub(r'-+', '-', name)
+    return name.strip('-')[:96] or "grishte-app"
 
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
@@ -503,38 +467,6 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-def enable_github_pages(repo_full_name, github_token, app_description):
-    owner, repo = repo_full_name.split('/')
-    gh_headers = {"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github.v3+json"}
-    pages_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/pages"
-    payload = {"source": {"branch": "main", "path": "/"}}
-    requests.post(pages_url, headers=gh_headers, json=payload)
-    readme_content = f"""# {repo} – Generated by GrishteSync
-
-**Generated on:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
-
-{app_description}
-
-## 🌐 Live Demo
-[![GitHub Pages](https://img.shields.io/badge/🌐-Live%20Demo-blue)](https://{owner}.github.io/{repo}/)
-
-## 📄 License
-MIT © GrishteSync | Suryasticsai
-"""
-    encoded = base64.b64encode(readme_content.encode()).decode()
-    readme_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/contents/README.md"
-    get_resp = requests.get(readme_url, headers=gh_headers)
-    payload_readme = {"message": "Add GitHub Pages documentation", "content": encoded, "branch": "main"}
-    if get_resp.status_code == 200:
-        payload_readme["sha"] = get_resp.json()["sha"]
-    requests.put(readme_url, headers=gh_headers, json=payload_readme)
-    return f"https://{owner}.github.io/{repo}/"
-
-def sanitize_space_name(name):
-    name = re.sub(r'[^a-zA-Z0-9-]', '-', name)
-    name = re.sub(r'-+', '-', name)
-    return name.strip('-')[:96] or "grishte-app"
-
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     start_time = time.time()
@@ -571,13 +503,10 @@ def deploy_hf():
         if not any(f.endswith(".py") for f in files):
             return jsonify({"error": "No Python files found. Hugging Face requires a Python app."}), 400
 
-        # Dynamic README detection
+        # Detect SDK
         if any("import streamlit" in content for content in files.get("app.py", "")):
             sdk = "streamlit"
             sdk_version = "1.35.0"
-        elif any("import gradio" in content for content in files.get("app.py", "")):
-            sdk = "gradio"
-            sdk_version = "6.18.0"
         else:
             sdk = "gradio"
             sdk_version = "6.18.0"
@@ -600,7 +529,7 @@ Deployed by GrishteSync
         files["README.md"] = readme_content
 
         if "requirements.txt" not in files:
-            files["requirements.txt"] = "gradio\nhuggingface_hub\n"
+            files["requirements.txt"] = "gradio>=4.0.0\nhuggingface_hub>=0.10.1"
 
         # Ensure proper launch for Gradio
         for fname, content in files.items():
@@ -608,7 +537,6 @@ Deployed by GrishteSync
                 if "server_name" not in content and "server_port" not in content:
                     files[fname] = content.replace(".launch(", ".launch(server_name='0.0.0.0', server_port=7860, ")
 
-        # Apply safety net one more time
         files = apply_safety_net(files)
 
         temp_dir = tempfile.mkdtemp()
@@ -661,7 +589,7 @@ Deployed by GrishteSync
 
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "4.0"})
+    return jsonify({"status": "GrishteSync backend running", "version": "4.1"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
