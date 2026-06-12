@@ -1,4 +1,3 @@
-# GrishteSync v3.0 – Production Ready with Fallback & Dynamic Resolution
 import os
 import re
 import json
@@ -39,7 +38,6 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     return response
 
-# ---------- Configuration ----------
 GROQ_API_KEY       = os.environ.get("GROQ_API_KEY")
 GROQ_API_URL       = "https://api.groq.com/openai/v1/chat/completions"
 MODEL_NAME         = "llama-3.3-70b-versatile"
@@ -53,11 +51,9 @@ GITHUB_API_URL       = "https://api.github.com"
 
 HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
 
-# ---------- Multi‑Prompt Loader ----------
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), 'prompts')
 
 def load_prompt(prompt_type, platform):
-    """Load prompt file: prompts/{platform}_{prompt_type}.txt or fallback."""
     filename = f"{platform}_{prompt_type}.txt"
     filepath = os.path.join(PROMPTS_DIR, filename)
     try:
@@ -74,7 +70,6 @@ def load_prompt(prompt_type, platform):
         print(f"Error loading prompt {filename}: {e}")
         return "You are an expert developer. Return ONLY valid JSON with a 'files' key."
 
-# ---------- Helpers ----------
 def safe_json(resp):
     ct = resp.headers.get("Content-Type", "")
     if "text/html" in ct:
@@ -116,7 +111,24 @@ MIT © GrishteSync | Suryasticsai
     requests.put(readme_url, headers=gh_headers, json=payload_readme)
     return f"https://{owner}.github.io/{repo}/"
 
-# ---------- Git Identity ----------
+def split_inline_css_js(files):
+    """If only index.html exists and contains <style> or <script>, split them."""
+    if 'index.html' not in files or len(files) > 1:
+        return files
+    html = files['index.html']
+    style_match = re.search(r'<style[^>]*>(.*?)</style>', html, re.DOTALL)
+    script_match = re.search(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
+    if style_match:
+        css = style_match.group(1).strip()
+        files['style.css'] = css
+        html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL)
+    if script_match:
+        js = script_match.group(1).strip()
+        files['script.js'] = js
+        html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
+    files['index.html'] = html
+    return files
+
 def setup_git_identity():
     try:
         subprocess.run(["git", "config", "--global", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
@@ -125,7 +137,6 @@ def setup_git_identity():
         pass
 setup_git_identity()
 
-# ---------- GitHub OAuth ----------
 @app.route("/auth/login")
 def github_login():
     params = {"client_id": GITHUB_CLIENT_ID, "redirect_uri": f"{request.host_url.rstrip('/')}/auth/callback", "scope": "repo workflow", "state": "github"}
@@ -149,7 +160,6 @@ def github_callback():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ---------- AI Generation ----------
 @app.route("/api/generate", methods=["POST"])
 def generate():
     start_time = time.time()
@@ -159,7 +169,7 @@ def generate():
 
     prompt = data.get("prompt", "").strip()
     prompt_type = data.get("prompt_type", "generate")
-    platform = data.get("platform", "huggingface")   # 'github' or 'huggingface'
+    platform = data.get("platform", "huggingface")
     repo_full_name = data.get("repo")
     user_token = None
 
@@ -212,7 +222,6 @@ def generate():
         ai_content = ai_content[start:end+1]
         ai_content = re.sub(r',\s*}', '}', ai_content)
         ai_content = re.sub(r',\s*]', ']', ai_content)
-        # escape newlines inside strings
         def fix_newlines(text):
             res, in_str, esc = [], False, False
             for ch in text:
@@ -247,12 +256,14 @@ def generate():
             return jsonify({"error": "Failed to parse AI response", "details": error, "preview": ai_content[:500]}), 500
         if "files" not in generated:
             generated = {"files": generated}
+        # Post-process for GitHub: ensure separate files
+        if platform == "github":
+            generated["files"] = split_inline_css_js(generated["files"])
         generated["generate_time"] = round(time.time() - start_time, 1)
         return jsonify(generated)
     except Exception as e:
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
-# ---------- Deploy to GitHub (Common for both platforms) ----------
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
     start_time = time.time()
@@ -304,7 +315,6 @@ def deploy():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-    # Get default branch
     try:
         repo_info, _ = safe_json(requests.get(repo_url, headers=gh_headers, timeout=10))
         default_branch = repo_info.get("default_branch", "main")
@@ -366,7 +376,6 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (Only for Python projects) ----------
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     start_time = time.time()
@@ -400,11 +409,9 @@ def deploy_hf():
         space_name = sanitize_space_name(raw_space_name)
         files = data.get("files", {})
 
-        # Ensure Python files exist (basic check)
         if not any(f.endswith(".py") for f in files):
             return jsonify({"error": "No Python files found. Hugging Face requires a Python app."}), 400
 
-        # Generate README.md with correct frontmatter
         readme_content = f"""---
 title: {space_name}
 emoji: 🐍
@@ -422,17 +429,14 @@ Deployed by GrishteSync
 """
         files["README.md"] = readme_content
 
-        # Ensure requirements.txt
         if "requirements.txt" not in files:
             files["requirements.txt"] = "gradio\nhuggingface_hub\n"
 
-        # Basic Gradio launch fix if needed
         for fname, content in files.items():
             if fname.endswith(".py") and "launch" in content:
                 if "server_name" not in content and "server_port" not in content:
                     files[fname] = content.replace(".launch(", ".launch(server_name='0.0.0.0', server_port=7860, ")
 
-        # Git operations
         temp_dir = tempfile.mkdtemp()
         space_repo_url = f"https://{username}:{HF_API_TOKEN}@huggingface.co/spaces/{username}/{space_name}"
         subprocess.run(["git", "config", "--global", "user.email", "grishtesync@render.com"], check=False)
@@ -440,7 +444,6 @@ Deployed by GrishteSync
 
         clone_result = subprocess.run(["git", "clone", space_repo_url, temp_dir], capture_output=True)
         if clone_result.returncode != 0:
-            # Create space if doesn't exist
             try:
                 create_repo(repo_id=f"{username}/{space_name}", repo_type="space", space_sdk="gradio", token=HF_API_TOKEN, exist_ok=True)
                 time.sleep(3)
@@ -448,7 +451,6 @@ Deployed by GrishteSync
             except Exception as e:
                 return jsonify({"error": f"Failed to create Space: {str(e)}"}), 500
 
-        # Remove all files except .git
         for item in os.listdir(temp_dir):
             if item == ".git":
                 continue
@@ -483,10 +485,9 @@ Deployed by GrishteSync
         if temp_dir and os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-# ---------- Health check ----------
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "3.0"})
+    return jsonify({"status": "GrishteSync backend running", "version": "3.1"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
