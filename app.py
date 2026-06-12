@@ -18,7 +18,6 @@ from huggingface_hub import HfApi, create_repo
 from packaging.version import parse
 
 app = Flask(__name__)
-
 CORS(app, resources={r"/*": {"origins": "*", "allow_headers": ["Content-Type", "Authorization"], "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]}})
 
 @app.before_request
@@ -38,108 +37,229 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     return response
 
-GROQ_API_KEY       = os.environ.get("GROQ_API_KEY")
-GROQ_API_URL       = "https://api.groq.com/openai/v1/chat/completions"
-MODEL_NAME         = "llama-3.3-70b-versatile"
+# ---------- Configuration ----------
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+MODEL_NAME = "llama-3.3-70b-versatile"
 
-GITHUB_CLIENT_ID     = os.environ.get("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_ID = os.environ.get("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET")
-FRONTEND_URL         = os.environ.get("FRONTEND_URL", "https://suryasticsai.github.io/GrishteSync/")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://suryasticsai.github.io/GrishteSync/")
 GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
-GITHUB_TOKEN_URL     = "https://github.com/login/oauth/access_token"
-GITHUB_API_URL       = "https://api.github.com"
+GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+GITHUB_API_URL = "https://api.github.com"
 
 HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
 
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), 'prompts')
 
-def load_prompt(prompt_type, platform):
-    filename = f"{platform}_{prompt_type}.txt"
+# ---------- Helper: Load Prompt ----------
+def load_prompt(prompt_type, context=None):
+    """
+    Load a prompt file from the prompts/ directory.
+    prompt_type: planner, coder, editor, fixer, generate (fallback)
+    context: optional dict to format into the prompt
+    """
+    filename = f"{prompt_type}.txt"
     filepath = os.path.join(PROMPTS_DIR, filename)
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
-            return f.read().strip()
+            content = f.read().strip()
     except FileNotFoundError:
-        fallback = os.path.join(PROMPTS_DIR, f"{platform}_generate.txt")
+        # Fallback to generate.txt
+        fallback = os.path.join(PROMPTS_DIR, "generate.txt")
         try:
             with open(fallback, 'r', encoding='utf-8') as f:
-                return f.read().strip()
+                content = f.read().strip()
         except:
-            return "You are an expert developer. Return ONLY valid JSON with a 'files' key."
+            content = "You are an expert developer. Return ONLY valid JSON with a 'files' key."
     except Exception as e:
         print(f"Error loading prompt {filename}: {e}")
-        return "You are an expert developer. Return ONLY valid JSON with a 'files' key."
+        content = "You are an expert developer. Return ONLY valid JSON with a 'files' key."
 
-def safe_json(resp):
-    ct = resp.headers.get("Content-Type", "")
-    if "text/html" in ct:
-        return None, f"Got HTML instead of JSON: {resp.text[:300]}"
-    try:
-        return resp.json(), None
-    except:
-        return None, f"JSON parse failed: {resp.text[:300]}"
+    if context:
+        try:
+            content = content.format(**context)
+        except KeyError as e:
+            print(f"Missing context key for {filename}: {e}")
+    return content
 
-def sanitize_space_name(name):
-    name = re.sub(r'[^a-zA-Z0-9-]', '-', name)
-    name = re.sub(r'-+', '-', name)
-    return name.strip('-')[:96] or "grishte-app"
+# ---------- Safety Net: Auto-fix Common Errors ----------
+def apply_safety_net(files):
+    """
+    Automatically corrects common AI generation mistakes.
+    - Replaces 'grado' with 'gradio'
+    - Converts exact version pins (==) to >=
+    - Adds torch if transformers is present
+    - Removes allow_flagging and demo.queue()
+    - Ensures watermark comment in all Python files
+    """
+    if "requirements.txt" in files:
+        req = files["requirements.txt"]
+        # Fix typo
+        req = req.replace("grado", "gradio")
+        # Convert == to >=
+        req = re.sub(r'\b([a-zA-Z0-9_-]+)==([\d.]+)\b', r'\1>=\2', req)
+        # Add torch if transformers is present
+        if "transformers" in req and "torch" not in req:
+            req = req.rstrip() + "\ntorch>=2.0.0"
+        files["requirements.txt"] = req
 
-def enable_github_pages(repo_full_name, github_token, app_description):
-    owner, repo = repo_full_name.split('/')
-    gh_headers = {"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github.v3+json"}
-    pages_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/pages"
-    payload = {"source": {"branch": "main", "path": "/"}}
-    requests.post(pages_url, headers=gh_headers, json=payload)
-    readme_content = f"""# {repo} – Generated by GrishteSync
+    if "app.py" in files:
+        code = files["app.py"]
+        # Remove allow_flagging
+        code = re.sub(r',?\s*allow_flagging\s*=\s*[^,)]+', '', code)
+        # Remove demo.queue()
+        code = re.sub(r'demo\.queue\(\).*', '', code)
+        files["app.py"] = code
 
-**Generated on:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
-
-{app_description}
-
-## 🌐 Live Demo
-[![GitHub Pages](https://img.shields.io/badge/🌐-Live%20Demo-blue)](https://{owner}.github.io/{repo}/)
-
-## 📄 License
-MIT © GrishteSync | Suryasticsai
-"""
-    encoded = base64.b64encode(readme_content.encode()).decode()
-    readme_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/contents/README.md"
-    get_resp = requests.get(readme_url, headers=gh_headers)
-    payload_readme = {"message": "Add GitHub Pages documentation", "content": encoded, "branch": "main"}
-    if get_resp.status_code == 200:
-        payload_readme["sha"] = get_resp.json()["sha"]
-    requests.put(readme_url, headers=gh_headers, json=payload_readme)
-    return f"https://{owner}.github.io/{repo}/"
-
-def split_inline_css_js(files):
-    """If only index.html exists and contains <style> or <script>, split them."""
-    if 'index.html' not in files or len(files) > 1:
-        return files
-    html = files['index.html']
-    style_match = re.search(r'<style[^>]*>(.*?)</style>', html, re.DOTALL)
-    script_match = re.search(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
-    if style_match:
-        css = style_match.group(1).strip()
-        files['style.css'] = css
-        html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL)
-    if script_match:
-        js = script_match.group(1).strip()
-        files['script.js'] = js
-        html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
-    files['index.html'] = html
+    # Watermark injection
+    watermark = [
+        "# Created with GrishteSync",
+        "# https://suryasticsai.github.io/GrishteSync",
+        "# Suryasticsai | suryasticsai@gmail.com"
+    ]
+    for fname, content in files.items():
+        if fname.endswith(".py"):
+            if not all(line in content for line in watermark):
+                content = "\n".join(watermark) + "\n\n" + content
+                files[fname] = content
     return files
 
-def setup_git_identity():
-    try:
-        subprocess.run(["git", "config", "--global", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
-        subprocess.run(["git", "config", "--global", "user.email", "grishtesync@render.com"], check=False, capture_output=True)
-    except:
-        pass
-setup_git_identity()
+# ---------- AI Call ----------
+def call_groq(messages):
+    """Send messages to Groq API and return the raw text response."""
+    resp = requests.post(
+        GROQ_API_URL,
+        headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+        json={"model": MODEL_NAME, "messages": messages, "temperature": 0.3},
+        timeout=90
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"].strip()
 
+def parse_ai_response(ai_content):
+    """Extract JSON from AI response (handles markdown fences)."""
+    ai_content = re.sub(r'^```(?:json)?\s*', '', ai_content.strip())
+    ai_content = re.sub(r'\s*```$', '', ai_content.strip())
+    start = ai_content.find('{')
+    end = ai_content.rfind('}')
+    if start == -1 or end <= start:
+        return None, "No JSON object found"
+    ai_content = ai_content[start:end+1]
+    ai_content = re.sub(r',\s*}', '}', ai_content)
+    ai_content = re.sub(r',\s*]', ']', ai_content)
+    # Fix unescaped newlines inside strings
+    def fix_newlines(text):
+        res, in_str, esc = [], False, False
+        for ch in text:
+            if esc:
+                res.append(ch); esc = False; continue
+            if ch == '\\':
+                res.append(ch); esc = True; continue
+            if ch == '"':
+                in_str = not in_str; res.append(ch); continue
+            if in_str and ch == '\n':
+                res.append('\\n')
+            elif in_str and ch == '\t':
+                res.append('\\t')
+            else:
+                res.append(ch)
+        return ''.join(res)
+    ai_content = fix_newlines(ai_content)
+    try:
+        return json.loads(ai_content), None
+    except json.JSONDecodeError as e:
+        return None, f"JSON parse error: {e}"
+
+# ---------- Modular Generation Pipeline ----------
+def generate_with_planner_and_coder(user_prompt, existing_files=None):
+    """
+    Uses planner.txt to create a plan, then coder.txt to generate code.
+    Returns a files dict.
+    """
+    # Step 1: Plan
+    planner_prompt = load_prompt("planner", context={"user_prompt": user_prompt})
+    messages = [{"role": "user", "content": planner_prompt}]
+    plan_raw = call_groq(messages)
+    # Extract plan JSON (simple: expect {"plan": [...]})
+    plan_json, err = parse_ai_response(plan_raw)
+    if err or not plan_json or "plan" not in plan_json:
+        # Fallback: treat the raw response as a plan (list of strings)
+        plan = [plan_raw]  # not ideal but better than nothing
+    else:
+        plan = plan_json["plan"]
+    plan_str = "\n".join([f"- {step}" for step in plan])
+
+    # Step 2: Generate code from plan
+    coder_prompt = load_prompt("coder", context={"plan": plan_str})
+    messages = [{"role": "user", "content": coder_prompt}]
+    code_raw = call_groq(messages)
+    files_dict, err = parse_ai_response(code_raw)
+    if err or not files_dict or "files" not in files_dict:
+        raise ValueError(f"Failed to generate code: {err}")
+    return files_dict["files"]
+
+def generate_with_editor(user_prompt, existing_files):
+    """Use editor.txt to modify existing files."""
+    context = {
+        "user_prompt": user_prompt,
+        "current_code": "\n".join([f"--- {fname} ---\n{content}" for fname, content in existing_files.items()])
+    }
+    editor_prompt = load_prompt("editor", context=context)
+    messages = [{"role": "user", "content": editor_prompt}]
+    response = call_groq(messages)
+    files_dict, err = parse_ai_response(response)
+    if err or not files_dict or "files" not in files_dict:
+        raise ValueError(f"Editor failed: {err}")
+    return files_dict["files"]
+
+def generate_with_fixer(error_log, broken_files):
+    """Use fixer.txt to repair code based on error logs."""
+    context = {
+        "error_log": error_log,
+        "current_code": "\n".join([f"--- {fname} ---\n{content}" for fname, content in broken_files.items()])
+    }
+    fixer_prompt = load_prompt("fixer", context=context)
+    messages = [{"role": "user", "content": fixer_prompt}]
+    response = call_groq(messages)
+    files_dict, err = parse_ai_response(response)
+    if err or not files_dict or "files" not in files_dict:
+        raise ValueError(f"Fixer failed: {err}")
+    return files_dict["files"]
+
+# ---------- Legacy simple generation (fallback) ----------
+def generate_simple(prompt, prompt_type, platform, repo_code=None):
+    """Original single‑prompt generation (used as fallback)."""
+    system_prompt = load_prompt(prompt_type, None)
+    user_message = f"Build a {'static website' if platform == 'github' else 'Python web app'}: {prompt}"
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}]
+    if repo_code:
+        context = "Current codebase:\n" + "\n".join([f"\n--- {fname} ---\n{content}" for fname, content in repo_code.items()])
+        messages.insert(0, {"role": "system", "content": context})
+    ai_content = call_groq(messages)
+    files_dict, err = parse_ai_response(ai_content)
+    if err:
+        # Retry once with stricter instruction
+        messages.append({"role": "assistant", "content": ai_content})
+        messages.append({"role": "user", "content": "Output ONLY valid JSON with 'files' key."})
+        ai_content = call_groq(messages)
+        files_dict, err = parse_ai_response(ai_content)
+    if err:
+        raise ValueError(f"Generation failed: {err}")
+    if "files" not in files_dict:
+        files_dict = {"files": files_dict}
+    return files_dict["files"]
+
+# ---------- Flask Routes ----------
 @app.route("/auth/login")
 def github_login():
-    params = {"client_id": GITHUB_CLIENT_ID, "redirect_uri": f"{request.host_url.rstrip('/')}/auth/callback", "scope": "repo workflow", "state": "github"}
+    params = {
+        "client_id": GITHUB_CLIENT_ID,
+        "redirect_uri": f"{request.host_url.rstrip('/')}/auth/callback",
+        "scope": "repo workflow",
+        "state": "github"
+    }
     return redirect(f"{GITHUB_AUTHORIZE_URL}?{urlencode(params)}")
 
 @app.route("/auth/callback")
@@ -148,7 +268,17 @@ def github_callback():
     if not code:
         return jsonify({"error": "Missing code"}), 400
     try:
-        resp = requests.post(GITHUB_TOKEN_URL, headers={"Accept": "application/json"}, data={"client_id": GITHUB_CLIENT_ID, "client_secret": GITHUB_CLIENT_SECRET, "code": code, "redirect_uri": f"{request.host_url.rstrip('/')}/auth/callback"}, timeout=15)
+        resp = requests.post(
+            GITHUB_TOKEN_URL,
+            headers={"Accept": "application/json"},
+            data={
+                "client_id": GITHUB_CLIENT_ID,
+                "client_secret": GITHUB_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": f"{request.host_url.rstrip('/')}/auth/callback"
+            },
+            timeout=15
+        )
         data, err = safe_json(resp)
         if err or "access_token" not in data:
             return jsonify({"error": "GitHub token error", "details": err or data}), 500
@@ -167,102 +297,102 @@ def generate():
     if not data:
         return jsonify({"error": "Invalid JSON body"}), 400
 
-    prompt = data.get("prompt", "").strip()
+    user_prompt = data.get("prompt", "").strip()
     prompt_type = data.get("prompt_type", "generate")
     platform = data.get("platform", "huggingface")
     repo_full_name = data.get("repo")
     user_token = None
-
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer ") or auth_header.startswith("token "):
         user_token = auth_header.split(" ", 1)[1]
 
-    if not prompt:
+    if not user_prompt:
         return jsonify({"error": "Prompt is required."}), 400
 
-    system_prompt = load_prompt(prompt_type, platform)
-
-    if platform == "github":
-        user_message = f"Build a static website: {prompt}"
-    else:
-        user_message = f"Build a Python web app: {prompt}"
-
-    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}]
-
+    # Fetch existing code if repo is provided
+    existing_code = {}
     if repo_full_name and user_token:
         try:
             gh_headers = {"Authorization": f"Bearer {user_token}", "Accept": "application/vnd.github.v3+json"}
             contents_resp = requests.get(f"{GITHUB_API_URL}/repos/{repo_full_name}/contents", headers=gh_headers, timeout=15)
             if contents_resp.status_code == 200:
-                existing_code = {}
                 for item in contents_resp.json():
                     if item["type"] == "file" and item.get("size", 0) < 500000:
                         try:
                             existing_code[item["name"]] = requests.get(item["download_url"], timeout=10).text
                         except:
                             pass
-                if existing_code:
-                    context = "Current codebase:\n" + "\n".join([f"\n--- {fname} ---\n{content}" for fname, content in existing_code.items()])
-                    messages.insert(0, {"role": "system", "content": context})
         except:
             pass
 
-    def call_groq(msgs):
-        resp = requests.post(GROQ_API_URL, headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}, json={"model": MODEL_NAME, "messages": msgs, "temperature": 0.3}, timeout=60)
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"].strip()
-
-    def parse_ai_response(ai_content):
-        ai_content = re.sub(r'^```(?:json)?\s*', '', ai_content.strip())
-        ai_content = re.sub(r'\s*```$', '', ai_content.strip())
-        start = ai_content.find('{')
-        end = ai_content.rfind('}')
-        if start == -1 or end <= start:
-            return None, "No JSON object found"
-        ai_content = ai_content[start:end+1]
-        ai_content = re.sub(r',\s*}', '}', ai_content)
-        ai_content = re.sub(r',\s*]', ']', ai_content)
-        def fix_newlines(text):
-            res, in_str, esc = [], False, False
-            for ch in text:
-                if esc:
-                    res.append(ch); esc = False; continue
-                if ch == '\\':
-                    res.append(ch); esc = True; continue
-                if ch == '"':
-                    in_str = not in_str; res.append(ch); continue
-                if in_str and ch == '\n':
-                    res.append('\\n')
-                elif in_str and ch == '\t':
-                    res.append('\\t')
-                else:
-                    res.append(ch)
-            return ''.join(res)
-        ai_content = fix_newlines(ai_content)
-        try:
-            return json.loads(ai_content), None
-        except:
-            return None, "JSON parse error"
-
     try:
-        ai_content = call_groq(messages)
-        generated, error = parse_ai_response(ai_content)
-        if generated is None:
-            messages.append({"role": "assistant", "content": ai_content})
-            messages.append({"role": "user", "content": "Output ONLY valid JSON with 'files' key."})
-            ai_content = call_groq(messages)
-            generated, error = parse_ai_response(ai_content)
-        if generated is None:
-            return jsonify({"error": "Failed to parse AI response", "details": error, "preview": ai_content[:500]}), 500
-        if "files" not in generated:
-            generated = {"files": generated}
-        # Post-process for GitHub: ensure separate files
+        # Route based on prompt_type
+        if prompt_type == "generate":
+            # Use planner + coder for new apps
+            generated_files = generate_with_planner_and_coder(user_prompt, existing_code)
+        elif prompt_type in ["fix", "diagnose"]:
+            # For fix/diagnose, we need error logs (maybe from request)
+            error_log = data.get("error_log", "")
+            if not error_log and existing_code:
+                # If no error log but we have existing code, treat as generic fix
+                error_log = "User requested a fix for the code."
+            generated_files = generate_with_fixer(error_log, existing_code if existing_code else {})
+        elif prompt_type in ["improve_ui", "add_feature", "refactor"]:
+            # Use editor for modifications
+            if not existing_code:
+                return jsonify({"error": "Cannot edit without existing code. Provide a repo."}), 400
+            generated_files = generate_with_editor(user_prompt, existing_code)
+        else:
+            # Fallback to simple generation
+            generated_files = generate_simple(user_prompt, prompt_type, platform, existing_code)
+
+        # Apply safety net
+        generated_files = apply_safety_net(generated_files)
+
+        # Post-process for GitHub static sites
         if platform == "github":
-            generated["files"] = split_inline_css_js(generated["files"])
-        generated["generate_time"] = round(time.time() - start_time, 1)
-        return jsonify(generated)
+            generated_files = split_inline_css_js(generated_files)
+
+        return jsonify({
+            "status": "success",
+            "files": generated_files,
+            "generate_time": round(time.time() - start_time, 1)
+        })
     except Exception as e:
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+
+# ---------- Deployment Endpoints (unchanged except safety net applied) ----------
+def split_inline_css_js(files):
+    """If only index.html exists and contains <style> or <script>, split them."""
+    if 'index.html' not in files or len(files) > 1:
+        return files
+    html = files['index.html']
+    style_match = re.search(r'<style[^>]*>(.*?)</style>', html, re.DOTALL)
+    script_match = re.search(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
+    if style_match:
+        css = style_match.group(1).strip()
+        files['style.css'] = css
+        html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL)
+    if script_match:
+        js = script_match.group(1).strip()
+        files['script.js'] = js
+        html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
+    files['index.html'] = html
+    return files
+
+def safe_json(resp):
+    try:
+        return resp.json(), None
+    except:
+        return None, f"JSON parse failed: {resp.text[:300]}"
+
+def setup_git_identity():
+    try:
+        subprocess.run(["git", "config", "--global", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
+        subprocess.run(["git", "config", "--global", "user.email", "grishtesync@render.com"], check=False, capture_output=True)
+    except:
+        pass
+setup_git_identity()
 
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
@@ -306,10 +436,7 @@ def deploy():
             if create_resp.status_code not in [200, 201]:
                 return jsonify({"error": f"Failed to create repo: {create_resp.text[:300]}"}), 500
             time.sleep(3)
-            try:
-                pages_url = enable_github_pages(f"{username}/{repo_name}", user_token, app_description)
-            except:
-                pass
+            pages_url = enable_github_pages(f"{username}/{repo_name}", user_token, app_description)
         elif check.status_code != 200:
             return jsonify({"error": f"Unexpected repo status: {check.status_code}"}), 500
     except Exception as e:
@@ -376,6 +503,38 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
+def enable_github_pages(repo_full_name, github_token, app_description):
+    owner, repo = repo_full_name.split('/')
+    gh_headers = {"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github.v3+json"}
+    pages_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/pages"
+    payload = {"source": {"branch": "main", "path": "/"}}
+    requests.post(pages_url, headers=gh_headers, json=payload)
+    readme_content = f"""# {repo} – Generated by GrishteSync
+
+**Generated on:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
+
+{app_description}
+
+## 🌐 Live Demo
+[![GitHub Pages](https://img.shields.io/badge/🌐-Live%20Demo-blue)](https://{owner}.github.io/{repo}/)
+
+## 📄 License
+MIT © GrishteSync | Suryasticsai
+"""
+    encoded = base64.b64encode(readme_content.encode()).decode()
+    readme_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/contents/README.md"
+    get_resp = requests.get(readme_url, headers=gh_headers)
+    payload_readme = {"message": "Add GitHub Pages documentation", "content": encoded, "branch": "main"}
+    if get_resp.status_code == 200:
+        payload_readme["sha"] = get_resp.json()["sha"]
+    requests.put(readme_url, headers=gh_headers, json=payload_readme)
+    return f"https://{owner}.github.io/{repo}/"
+
+def sanitize_space_name(name):
+    name = re.sub(r'[^a-zA-Z0-9-]', '-', name)
+    name = re.sub(r'-+', '-', name)
+    return name.strip('-')[:96] or "grishte-app"
+
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
     start_time = time.time()
@@ -412,13 +571,24 @@ def deploy_hf():
         if not any(f.endswith(".py") for f in files):
             return jsonify({"error": "No Python files found. Hugging Face requires a Python app."}), 400
 
+        # Dynamic README detection
+        if any("import streamlit" in content for content in files.get("app.py", "")):
+            sdk = "streamlit"
+            sdk_version = "1.35.0"
+        elif any("import gradio" in content for content in files.get("app.py", "")):
+            sdk = "gradio"
+            sdk_version = "6.18.0"
+        else:
+            sdk = "gradio"
+            sdk_version = "6.18.0"
+
         readme_content = f"""---
 title: {space_name}
 emoji: 🐍
 colorFrom: green
 colorTo: blue
-sdk: gradio
-sdk_version: "5.0"
+sdk: {sdk}
+sdk_version: "{sdk_version}"
 python_version: "3.10"
 app_file: app.py
 pinned: false
@@ -432,10 +602,14 @@ Deployed by GrishteSync
         if "requirements.txt" not in files:
             files["requirements.txt"] = "gradio\nhuggingface_hub\n"
 
+        # Ensure proper launch for Gradio
         for fname, content in files.items():
             if fname.endswith(".py") and "launch" in content:
                 if "server_name" not in content and "server_port" not in content:
                     files[fname] = content.replace(".launch(", ".launch(server_name='0.0.0.0', server_port=7860, ")
+
+        # Apply safety net one more time
+        files = apply_safety_net(files)
 
         temp_dir = tempfile.mkdtemp()
         space_repo_url = f"https://{username}:{HF_API_TOKEN}@huggingface.co/spaces/{username}/{space_name}"
@@ -445,7 +619,7 @@ Deployed by GrishteSync
         clone_result = subprocess.run(["git", "clone", space_repo_url, temp_dir], capture_output=True)
         if clone_result.returncode != 0:
             try:
-                create_repo(repo_id=f"{username}/{space_name}", repo_type="space", space_sdk="gradio", token=HF_API_TOKEN, exist_ok=True)
+                create_repo(repo_id=f"{username}/{space_name}", repo_type="space", space_sdk=sdk, token=HF_API_TOKEN, exist_ok=True)
                 time.sleep(3)
                 subprocess.run(["git", "clone", space_repo_url, temp_dir], check=True, capture_output=True)
             except Exception as e:
@@ -487,7 +661,7 @@ Deployed by GrishteSync
 
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "3.1"})
+    return jsonify({"status": "GrishteSync backend running", "version": "4.0"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
