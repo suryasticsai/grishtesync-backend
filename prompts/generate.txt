@@ -153,3 +153,6 @@ FINAL SELF-CHECK (run silently before output)
 □ Gradio apps: no allow_flagging, no unnecessary demo.queue(), correct launch()
 □ Flask apps: Dockerfile present, binds to 0.0.0.0:7860
 □ If updating an existing repo: only changed/new files are returned
+
+## FINAL REMINDER
+Output **only** the JSON object, nothing else. No markdown, no backticks, no commentary. Start with { and end with }.
