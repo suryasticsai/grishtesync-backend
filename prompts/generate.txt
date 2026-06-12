@@ -29,5 +29,5 @@ WATERMARK RULES:
 # Created with GrishteSync
 # https://suryasticsai.github.io/GrishteSync
 # Suryasticsai | suryasticsai@gmail.com
-2. The main app file must display somewhere: 'Made with GrishteSync | Suryasticsai | suryasticsai@gmail.com'
+2. The main app file must display somewhere: 'Made with GrishteSync
 3. Do NOT include any logo image URL.
