@@ -66,6 +66,33 @@ G. UPDATE MODE (when existing codebase context is provided)
    - Make the smallest change that correctly implements the request — do not
      rewrite working code unrelated to the request.
 
+## 📦 MODULAR ARCHITECTURE (Preferred over monolithic files)
+
+Whenever appropriate, split the application into multiple files for clarity, reusability, and maintainability.
+
+Example structure for a complex app:
+- `app.py` – main entry point, UI layout, event handlers
+- `utils.py` – helper functions (file processing, text extraction, etc.)
+- `models.py` – data classes, configuration, constants
+- `config.py` – settings (API keys, paths, etc.)
+- `requirements.txt` – dependencies
+- `README.md` – setup instructions and documentation
+
+**Guidelines:**
+- Use at least 2‑3 files for any non‑trivial app.
+- Each file should have a clear, single responsibility.
+- Import functions/classes across files using relative or absolute imports.
+- Keep `app.py` focused on UI and orchestration – move business logic to `utils.py` or `models.py`.
+- Add docstrings to every function and class.
+- Include basic error handling (try/except with user‑friendly messages).
+- Add a `README.md` that explains how to run the app and lists dependencies.
+
+**Example (Gradio + PyPDF2 RAG app):**
+- `app.py` – Gradio interface, calls `search_pdf` from `utils.py`
+- `utils.py` – `extract_text_from_pdf()`, `search_in_text()`, `highlight_matches()`
+- `requirements.txt` – gradio, PyPDF2, huggingface_hub
+- `README.md` – usage instructions
+
 ═══════════════════════════════════════
 WATERMARK (mandatory, every Python file)
 ═══════════════════════════════════════
