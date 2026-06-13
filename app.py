@@ -582,6 +582,69 @@ def deploy():
         "username": username,
         "deploy_time": round(time.time() - start_time, 1)
     })
+@app.route("/api/diagnose", methods=["POST"])
+def diagnose():
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Invalid JSON body"}), 400
+
+    error_log = data.get("error_log", "").strip()
+    current_files = data.get("files", {})
+    if not error_log:
+        return jsonify({"error": "No error log provided"}), 400
+    if not current_files:
+        return jsonify({"error": "No code files provided"}), 400
+
+    # Prepare context for the fixer prompt
+    context = {
+        "error_log": error_log,
+        "current_code": "\n".join([f"--- {fname} ---\n{content}" for fname, content in current_files.items()])
+    }
+    
+    # Load the fixer prompt (you need prompts/fixer.txt)
+    try:
+        with open(os.path.join(PROMPTS_DIR, "fixer.txt"), 'r', encoding='utf-8') as f:
+            system_prompt = f.read()
+    except:
+        # Fallback prompt
+        system_prompt = """You are an expert debugger. Fix the code based on the error log.
+Return ONLY a JSON object with a "files" key.
+The files should have the same structure as the current code, but with fixes applied.
+Do not change filenames unnecessarily.
+If you need to add a new file, include it.
+The JSON must be valid and contain no markdown or extra text.
+
+Current code:
+{current_code}
+
+Error log:
+{error_log}
+"""
+    
+    # Fill in context (using .format if placeholders exist)
+    try:
+        system_prompt_filled = system_prompt.format(**context)
+    except KeyError:
+        # If placeholders not present, just append
+        system_prompt_filled = system_prompt + f"\n\nCurrent code:\n{context['current_code']}\n\nError log:\n{error_log}"
+
+    messages = [
+        {"role": "system", "content": system_prompt_filled},
+        {"role": "user", "content": "Fix the error and return the corrected files as JSON."}
+    ]
+    
+    try:
+        ai_content = call_groq(messages)
+        files_dict, err = parse_ai_response(ai_content)
+        if err:
+            return jsonify({"error": f"Failed to parse AI response: {err}"}), 500
+        if "files" not in files_dict:
+            files_dict = {"files": files_dict}
+        # Apply safety net to fix any remaining issues
+        fixed_files = apply_safety_net(files_dict["files"])
+        return jsonify({"status": "success", "files": fixed_files})
+    except Exception as e:
+        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
