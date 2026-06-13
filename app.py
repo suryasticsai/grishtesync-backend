@@ -1,3 +1,4 @@
+# - - - GrishteSync version 5.0.0 - - - 
 import os
 import re
 import json
@@ -5,8 +6,8 @@ import base64
 import time
 import traceback
 import datetime
-import shutil
 import tempfile
+import shutil
 import subprocess
 import requests
 from flask import Flask, request, jsonify, redirect, make_response
@@ -16,12 +17,12 @@ from huggingface_hub import HfApi, create_repo
 
 app = Flask(__name__)
 
-# ---------- Secure CORS Configuration ----------
+# ---------- Secure CORS ----------
 FRONTEND_URLS = [
     "https://suryasticsai.github.io",
     "http://localhost:3000",
     "http://localhost:5000",
-    "https://grishtesync-backend.onrender.com",  # for testing
+    "https://grishtesync-backend.onrender.com",
 ]
 CORS(app, resources={r"/*": {"origins": FRONTEND_URLS, "allow_headers": ["Content-Type", "Authorization"], "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]}})
 
@@ -69,7 +70,7 @@ GITHUB_API_URL = "https://api.github.com"
 HF_API_TOKEN = os.environ.get("HF_API_TOKEN")
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), 'prompts')
 
-# ---------- Helper: Load Prompt ----------
+# ---------- Load Prompt ----------
 def load_prompt(prompt_type, context=None):
     filename = f"{prompt_type}.txt"
     filepath = os.path.join(PROMPTS_DIR, filename)
@@ -93,44 +94,6 @@ def load_prompt(prompt_type, context=None):
         except KeyError as e:
             print(f"Missing context key for {filename}: {e}")
     return content
-
-# ---------- Enhanced Safety Net ----------
-def apply_safety_net(files):
-    """Fix common AI mistakes: typos, exact pins, missing torch, allow_flagging, block=True, watermark."""
-    if "requirements.txt" in files:
-        req = files["requirements.txt"]
-        # 1. typo fix
-        req = req.replace("grado", "gradio")
-        # 2. exact version pins -> >=
-        req = re.sub(r'\b([a-zA-Z0-9_-]+)==([\d.]+)\b', r'\1>=\2', req)
-        # 3. ensure torch if transformers present (case-insensitive)
-        if re.search(r'\btransformers\b', req, re.IGNORECASE) and not re.search(r'\btorch\b', req, re.IGNORECASE):
-            req = req.rstrip() + "\ntorch>=2.0.0"
-        # 4. ensure dash-bootstrap-components version if dash used
-        if "dash" in req and "dash-bootstrap-components" in req:
-            req = re.sub(r'dash-bootstrap-components.*', 'dash-bootstrap-components>=2.0.0', req)
-        files["requirements.txt"] = req
-
-    if "app.py" in files:
-        code = files["app.py"]
-        # Remove allow_flagging
-        code = re.sub(r',?\s*allow_flagging\s*=\s*[^,)]+', '', code)
-        # Remove demo.queue()
-        code = re.sub(r'demo\.queue\(\).*', '', code)
-        # Fix dash bootstrap 'block=True' -> style
-        code = re.sub(r'(dbc\.Button\([^)]*?)block=True', r'\1style={\'width\': \'100%\'}', code)
-        
-        # Inject watermark if missing
-        watermark = [
-            "# Created with GrishteSync",
-            "# https://suryasticsai.github.io/GrishteSync",
-            "# Suryasticsai | suryasticsai@gmail.com"
-        ]
-        if not all(line in code for line in watermark):
-            code = "\n".join(watermark) + "\n\n" + code
-        files["app.py"] = code
-
-    return files
 
 # ---------- Enhanced JSON Parser ----------
 def parse_ai_response(ai_content):
@@ -205,7 +168,7 @@ def call_groq(messages):
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"].strip()
 
-# ---------- Generation Functions ----------
+# ---------- Generation Function ----------
 def generate_simple(prompt, prompt_type, platform, repo_code=None):
     system_prompt = load_prompt(prompt_type, None)
     user_message = f"Build a {'static website' if platform == 'github' else 'Python web app'}: {prompt}"
@@ -228,7 +191,202 @@ def generate_simple(prompt, prompt_type, platform, repo_code=None):
         files_dict = {"files": files_dict}
     return files_dict["files"]
 
-# ---------- Flask Routes ----------
+# ============================================================
+#                SAFETY NET (embedded, no external file)
+# ============================================================
+def apply_safety_net(files):
+    """
+    Fix common AI mistakes in generated files.
+    - Fixes typos and version pins in requirements.txt
+    - Adds missing packages based on code analysis
+    - Removes allow_flagging, demo.queue()
+    - Fixes dash bootstrap `block=True` → style
+    - Injects watermark into all Python files
+    """
+    # Collect all Python code
+    all_py_code = ""
+    py_files = {}
+    html_files = {}
+    for name, content in files.items():
+        if name.endswith('.py'):
+            py_files[name] = content
+            all_py_code += content + "\n\n"
+        elif name.endswith('.html'):
+            html_files[name] = content
+
+    # ---------- Detect packages from code ----------
+    PACKAGE_RULES = [
+        (r'from flask import|import flask|Flask\(', 'flask', '2.0.0'),
+        (r'from django\.|import django|DJANGO_SETTINGS_MODULE', 'django', '4.0.0'),
+        (r'from fastapi import|FastApi\(', 'fastapi', '0.100.0'),
+        (r'import uvicorn', 'uvicorn', '0.20.0'),
+        (r'import gradio|from gradio import|gr\.Interface|gr\.Blocks|demo\.launch', 'gradio', '4.0.0'),
+        (r'import streamlit|st\.', 'streamlit', '1.25.0'),
+        (r'import dash|from dash import|dcc\.|dash\.Dash', 'dash', '2.14.0'),
+        (r'dbc\.|dash_bootstrap_components', 'dash-bootstrap-components', '2.0.0'),
+        (r'import torch|from torch import|torch\.nn', 'torch', '2.0.0'),
+        (r'import tensorflow|from tensorflow import|tf\.keras', 'tensorflow', '2.13.0'),
+        (r'import transformers|from transformers import|pipeline\(', 'transformers', '4.30.0'),
+        (r'import langchain|from langchain', 'langchain', '0.1.0'),
+        (r'import openai|from openai import|OpenAI\(', 'openai', '1.0.0'),
+        (r'import anthropic|Anthropic\(', 'anthropic', '0.18.0'),
+        (r'import sklearn|from sklearn\.', 'scikit-learn', '1.3.0'),
+        (r'import pandas|pd\.', 'pandas', '2.0.0'),
+        (r'import numpy|np\.', 'numpy', '1.24.0'),
+        (r'import matplotlib|plt\.', 'matplotlib', '3.7.0'),
+        (r'import seaborn|sns\.', 'seaborn', '0.12.0'),
+        (r'import plotly|px\.|go\.Figure', 'plotly', '5.0.0'),
+        (r'import PyPDF2|PdfReader|PdfWriter', 'PyPDF2', '3.0.0'),
+        (r'import pdfplumber', 'pdfplumber', '0.10.0'),
+        (r'from bs4 import|BeautifulSoup', 'beautifulsoup4', '4.12.0'),
+        (r'import requests|requests\.get', 'requests', '2.31.0'),
+        (r'PIL\.|from PIL import', 'pillow', '10.0.0'),
+        (r'cv2\.|import cv2', 'opencv-python', '4.8.0'),
+    ]
+    ALIAS_MAP = {
+        'sklearn': 'scikit-learn',
+        'bs4': 'beautifulsoup4',
+        'PIL': 'pillow',
+        'cv2': 'opencv-python',
+        'dash_bootstrap_components': 'dash-bootstrap-components',
+    }
+    STDLIB = {'os','sys','re','json','time','datetime','math','random','io','pathlib','typing','collections','itertools','functools','subprocess','tempfile','shutil','argparse','logging','unittest','hashlib','base64','urllib','http','email','html','xml','csv','sqlite3','threading','multiprocessing','asyncio','socket','ssl','secrets','string','textwrap','pprint','copy','weakref','abc','enum','dataclasses'}
+
+    detected_packages = set()
+    for pattern, pkg, version in PACKAGE_RULES:
+        if re.search(pattern, all_py_code, re.IGNORECASE):
+            detected_packages.add(f"{pkg}>={version}")
+
+    import_re = re.compile(r'^(?:from|import)\s+([a-zA-Z0-9_]+)', re.MULTILINE)
+    for match in import_re.findall(all_py_code):
+        if match in ALIAS_MAP:
+            detected_packages.add(f"{ALIAS_MAP[match]}>=0.0.0")
+        elif match not in STDLIB:
+            detected_packages.add(f"{match}>=0.0.0")
+
+    # ---------- Merge into requirements.txt ----------
+    req_content = files.get("requirements.txt", "")
+    current_pkgs = set()
+    for line in req_content.split('\n'):
+        line = line.strip()
+        if line and not line.startswith('#'):
+            base = re.sub(r'[>=<!].*', '', line).lower()
+            current_pkgs.add(base)
+
+    for pkg_line in detected_packages:
+        base = re.sub(r'[>=<!].*', '', pkg_line).lower()
+        if base not in current_pkgs:
+            req_content = req_content.rstrip() + "\n" + pkg_line
+            current_pkgs.add(base)
+
+    # Fix typos and exact pins
+    req_content = req_content.replace("grado", "gradio").replace("gradio3", "gradio").replace("gradio4", "gradio")
+    req_content = re.sub(r'\b([a-zA-Z0-9_-]+)==([\d.]+)\b', r'\1>=\2', req_content)
+    # Deduplicate
+    lines = [line.strip() for line in req_content.split('\n') if line.strip() and not line.startswith('#')]
+    seen = set()
+    unique = []
+    for line in lines:
+        base = re.sub(r'[>=<!].*', '', line).lower()
+        if base not in seen:
+            seen.add(base)
+            unique.append(line)
+    unique.sort()
+    files["requirements.txt"] = "\n".join(unique)
+
+    # ---------- Fix each Python file ----------
+    watermark = [
+        "# Created with GrishteSync",
+        "# https://suryasticsai.github.io/GrishteSync",
+        "# Suryasticsai | suryasticsai@gmail.com"
+    ]
+    watermark_str = "\n".join(watermark) + "\n\n"
+
+    for fname, code in py_files.items():
+        # Remove Gradio deprecated args
+        code = re.sub(r',?\s*allow_flagging\s*=\s*[^,)]+', '', code)
+        code = re.sub(r'demo\.queue\(\).*', '', code)
+        # Fix dash bootstrap block=True
+        code = re.sub(r'(dbc\.Button\([^)]*?)block=True', r'\1style={\'width\': \'100%\'}', code)
+        # Ensure watermark
+        if not all(line in code for line in watermark):
+            code = watermark_str + code
+        files[fname] = code
+
+    # ---------- Fix HTML files ----------
+    for fname, content in html_files.items():
+        if '<meta name="viewport"' not in content:
+            content = content.replace('<head>', '<head>\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">')
+        files[fname] = content
+
+    return files
+
+# ------------------------------------------------------------
+#                     DEPLOYMENT ENDPOINTS
+# ------------------------------------------------------------
+def split_inline_css_js(files):
+    if 'index.html' not in files or len(files) > 1:
+        return files
+    html = files['index.html']
+    style_match = re.search(r'<style[^>]*>(.*?)</style>', html, re.DOTALL)
+    script_match = re.search(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
+    if style_match:
+        css = style_match.group(1).strip()
+        files['style.css'] = css
+        html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL)
+    if script_match:
+        js = script_match.group(1).strip()
+        files['script.js'] = js
+        html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
+    files['index.html'] = html
+    return files
+
+def safe_json(resp):
+    try:
+        return resp.json(), None
+    except:
+        return None, f"JSON parse failed: {resp.text[:300]}"
+
+def setup_git_identity():
+    try:
+        subprocess.run(["git", "config", "--global", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
+        subprocess.run(["git", "config", "--global", "user.email", "grishtesync@render.com"], check=False, capture_output=True)
+    except:
+        pass
+setup_git_identity()
+
+def enable_github_pages(repo_full_name, github_token, app_description):
+    owner, repo = repo_full_name.split('/')
+    gh_headers = {"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github.v3+json"}
+    pages_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/pages"
+    payload = {"source": {"branch": "main", "path": "/"}}
+    requests.post(pages_url, headers=gh_headers, json=payload)
+    readme_content = f"""# {repo} – Generated by GrishteSync
+
+**Generated on:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
+
+{app_description}
+
+## 🌐 Live Demo
+[![GitHub Pages](https://img.shields.io/badge/🌐-Live%20Demo-blue)](https://{owner}.github.io/{repo}/)
+
+## 📄 License
+MIT © GrishteSync | Suryasticsai
+"""
+    encoded = base64.b64encode(readme_content.encode()).decode()
+    readme_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/contents/README.md"
+    get_resp = requests.get(readme_url, headers=gh_headers)
+    payload_readme = {"message": "Add GitHub Pages documentation", "content": encoded, "branch": "main"}
+    if get_resp.status_code == 200:
+        payload_readme["sha"] = get_resp.json()["sha"]
+    requests.put(readme_url, headers=gh_headers, json=payload_readme)
+    return f"https://{owner}.github.io/{repo}/"
+
+def sanitize_space_name(name):
+    name = re.sub(r'[^a-zA-Z0-9-]', '-', name)
+    name = re.sub(r'-+', '-', name)
+    return name.strip('-')[:96] or "grishte-app"
+
 @app.route("/auth/login")
 def github_login():
     params = {
@@ -315,70 +473,6 @@ def generate():
         })
     except Exception as e:
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
-
-# ---------- Deployment Helpers ----------
-def split_inline_css_js(files):
-    if 'index.html' not in files or len(files) > 1:
-        return files
-    html = files['index.html']
-    style_match = re.search(r'<style[^>]*>(.*?)</style>', html, re.DOTALL)
-    script_match = re.search(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
-    if style_match:
-        css = style_match.group(1).strip()
-        files['style.css'] = css
-        html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL)
-    if script_match:
-        js = script_match.group(1).strip()
-        files['script.js'] = js
-        html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
-    files['index.html'] = html
-    return files
-
-def safe_json(resp):
-    try:
-        return resp.json(), None
-    except:
-        return None, f"JSON parse failed: {resp.text[:300]}"
-
-def setup_git_identity():
-    try:
-        subprocess.run(["git", "config", "--global", "user.name", "GrishteSync Bot"], check=False, capture_output=True)
-        subprocess.run(["git", "config", "--global", "user.email", "grishtesync@render.com"], check=False, capture_output=True)
-    except:
-        pass
-setup_git_identity()
-
-def enable_github_pages(repo_full_name, github_token, app_description):
-    owner, repo = repo_full_name.split('/')
-    gh_headers = {"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github.v3+json"}
-    pages_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/pages"
-    payload = {"source": {"branch": "main", "path": "/"}}
-    requests.post(pages_url, headers=gh_headers, json=payload)
-    readme_content = f"""# {repo} – Generated by GrishteSync
-
-**Generated on:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
-
-{app_description}
-
-## 🌐 Live Demo
-[![GitHub Pages](https://img.shields.io/badge/🌐-Live%20Demo-blue)](https://{owner}.github.io/{repo}/)
-
-## 📄 License
-MIT © GrishteSync | Suryasticsai
-"""
-    encoded = base64.b64encode(readme_content.encode()).decode()
-    readme_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/contents/README.md"
-    get_resp = requests.get(readme_url, headers=gh_headers)
-    payload_readme = {"message": "Add GitHub Pages documentation", "content": encoded, "branch": "main"}
-    if get_resp.status_code == 200:
-        payload_readme["sha"] = get_resp.json()["sha"]
-    requests.put(readme_url, headers=gh_headers, json=payload_readme)
-    return f"https://{owner}.github.io/{repo}/"
-
-def sanitize_space_name(name):
-    name = re.sub(r'[^a-zA-Z0-9-]', '-', name)
-    name = re.sub(r'-+', '-', name)
-    return name.strip('-')[:96] or "grishte-app"
 
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
@@ -611,7 +705,7 @@ Deployed by GrishteSync
 
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "4.2"})
+    return jsonify({"status": "GrishteSync backend running", "version": "5.0"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
