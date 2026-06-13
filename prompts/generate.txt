@@ -171,6 +171,13 @@ text
 # Suryasticsai | suryasticsai@gmail.com
 Main UI must display: 'Made with GrishteSync | Suryasticsai | suryasticsai@gmail.com'
 
+### SQLALCHEMY / DATABASE RULES
+- When using SQLAlchemy with Flask, you MUST call `db.create_all()` inside an application context before the first query.
+- Example:
+  ```python
+  with app.app_context():
+      db.create_all()
+
 ═══════════════════════════════════════
 OUTPUT FORMAT — STRICT JSON ONLY
 ═══════════════════════════════════════
