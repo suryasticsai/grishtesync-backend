@@ -1,4 +1,3 @@
-# -- GrishteSync version - 5.1 --
 import os
 import re
 import json
@@ -10,7 +9,6 @@ import tempfile
 import shutil
 import subprocess
 import requests
-import io
 from flask import Flask, request, jsonify, redirect, make_response
 from flask_cors import CORS
 from urllib.parse import urlencode
@@ -18,7 +16,7 @@ from huggingface_hub import HfApi, create_repo, hf_hub_download
 
 app = Flask(__name__)
 
-# ---------- Secure CORS ----------
+# ---------- CORS ----------
 FRONTEND_URLS = [
     "https://suryasticsai.github.io",
     "http://localhost:3000",
@@ -51,9 +49,9 @@ def validate_env_vars():
     required = ["GROQ_API_KEY", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"]
     missing = [var for var in required if not os.environ.get(var)]
     if missing:
-        print(f"⚠️ WARNING: Missing required env vars: {', '.join(missing)}")
+        print(f"⚠️ Missing: {', '.join(missing)}")
     if not os.environ.get("HF_API_TOKEN"):
-        print("⚠️ WARNING: HF_API_TOKEN not set. Hugging Face features will be limited.")
+        print("⚠️ HF_API_TOKEN not set. HF features limited.")
 validate_env_vars()
 
 # ---------- Configuration ----------
@@ -93,12 +91,11 @@ def load_prompt(prompt_type, context=None):
         try:
             content = content.format(**context)
         except KeyError as e:
-            print(f"Missing context key for {filename}: {e}")
+            print(f"Missing context key: {e}")
     return content
 
-# ---------- Enhanced JSON Parser ----------
+# ---------- JSON Parser ----------
 def parse_ai_response(ai_content):
-    """Extract JSON from AI response – handles markdown, extra text, trailing commas, unescaped newlines."""
     ai_content = re.sub(r'^```(?:json)?\s*', '', ai_content.strip(), flags=re.MULTILINE)
     ai_content = re.sub(r'\s*```$', '', ai_content.strip(), flags=re.MULTILINE)
     start = ai_content.find('{')
@@ -108,23 +105,23 @@ def parse_ai_response(ai_content):
     json_str = ai_content[start:end+1]
     json_str = re.sub(r',\s*}', '}', json_str)
     json_str = re.sub(r',\s*]', ']', json_str)
-    def fix_unescaped_newlines(text):
-        result, in_string, escape = [], False, False
+    def fix_newlines(text):
+        res, in_str, esc = [], False, False
         for ch in text:
-            if escape:
-                result.append(ch); escape = False; continue
+            if esc:
+                res.append(ch); esc = False; continue
             if ch == '\\':
-                result.append(ch); escape = True; continue
+                res.append(ch); esc = True; continue
             if ch == '"':
-                in_string = not in_string; result.append(ch); continue
-            if in_string and ch == '\n':
-                result.append('\\n')
-            elif in_string and ch == '\t':
-                result.append('\\t')
+                in_str = not in_str; res.append(ch); continue
+            if in_str and ch == '\n':
+                res.append('\\n')
+            elif in_str and ch == '\t':
+                res.append('\\t')
             else:
-                result.append(ch)
-        return ''.join(result)
-    json_str = fix_unescaped_newlines(json_str)
+                res.append(ch)
+        return ''.join(res)
+    json_str = fix_newlines(json_str)
     try:
         return json.loads(json_str), None
     except json.JSONDecodeError as e:
@@ -134,7 +131,7 @@ def parse_ai_response(ai_content):
         try:
             return json.loads(json_str), None
         except json.JSONDecodeError as e2:
-            return None, f"JSON parse error: {e2}. First 300 chars: {json_str[:300]}"
+            return None, f"JSON parse error: {e2}. Preview: {json_str[:300]}"
 
 # ---------- AI Call ----------
 def call_groq(messages):
@@ -147,70 +144,7 @@ def call_groq(messages):
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"].strip()
 
-# ---------- Safety Net (embedded) ----------
-def apply_safety_net(files):
-    """Fix common AI mistakes: typos, exact pins, missing torch, allow_flagging, block=True, watermark."""
-    all_py_code = "\n".join([content for name, content in files.items() if name.endswith('.py')])
-    
-    # Detect packages from code
-    PACKAGE_RULES = [
-        (r'from flask import|import flask|Flask\(', 'flask', '2.0.0'),
-        (r'from fastapi import|FastApi\(', 'fastapi', '0.100.0'),
-        (r'import gradio|from gradio import|gr\.Interface|gr\.Blocks|demo\.launch', 'gradio', '4.0.0'),
-        (r'import streamlit|st\.', 'streamlit', '1.25.0'),
-        (r'import dash|from dash import|dcc\.|dash\.Dash', 'dash', '2.14.0'),
-        (r'dbc\.|dash_bootstrap_components', 'dash-bootstrap-components', '2.0.0'),
-        (r'import torch|from torch import|torch\.nn', 'torch', '2.0.0'),
-        (r'import transformers|from transformers import|pipeline\(', 'transformers', '4.30.0'),
-        (r'import pandas|pd\.', 'pandas', '2.0.0'),
-        (r'import numpy|np\.', 'numpy', '1.24.0'),
-        (r'import PyPDF2|PdfReader', 'PyPDF2', '3.0.0'),
-        (r'from bs4 import|BeautifulSoup', 'beautifulsoup4', '4.12.0'),
-        (r'import requests|requests\.get', 'requests', '2.31.0'),
-    ]
-    detected_packages = set()
-    for pattern, pkg, version in PACKAGE_RULES:
-        if re.search(pattern, all_py_code, re.IGNORECASE):
-            detected_packages.add(f"{pkg}>={version}")
-    
-    # Handle requirements.txt
-    req_content = files.get("requirements.txt", "")
-    current_pkgs = set(re.sub(r'[>=<!].*', '', line).lower() for line in req_content.split('\n') if line.strip() and not line.startswith('#'))
-    for pkg_line in detected_packages:
-        base = re.sub(r'[>=<!].*', '', pkg_line).lower()
-        if base not in current_pkgs:
-            req_content = req_content.rstrip() + "\n" + pkg_line
-            current_pkgs.add(base)
-    req_content = req_content.replace("grado", "gradio")
-    req_content = re.sub(r'\b([a-zA-Z0-9_-]+)==([\d.]+)\b', r'\1>=\2', req_content)
-    lines = [line.strip() for line in req_content.split('\n') if line.strip() and not line.startswith('#')]
-    seen, unique = set(), []
-    for line in lines:
-        base = re.sub(r'[>=<!].*', '', line).lower()
-        if base not in seen:
-            seen.add(base)
-            unique.append(line)
-    unique.sort()
-    files["requirements.txt"] = "\n".join(unique)
-    
-    # Fix each Python file
-    watermark = [
-        "# Created with GrishteSync",
-        "# https://suryasticsai.github.io/GrishteSync",
-        "# Suryasticsai | suryasticsai@gmail.com"
-    ]
-    watermark_str = "\n".join(watermark) + "\n\n"
-    for fname, code in list(files.items()):
-        if fname.endswith('.py'):
-            code = re.sub(r',?\s*allow_flagging\s*=\s*[^,)]+', '', code)
-            code = re.sub(r'demo\.queue\(\).*', '', code)
-            code = re.sub(r'(dbc\.Button\([^)]*?)block=True', r'\1style={\'width\': \'100%\'}', code)
-            if not all(line in code for line in watermark):
-                code = watermark_str + code
-            files[fname] = code
-    return files
-
-# ---------- Generation Function ----------
+# ---------- Generation ----------
 def generate_simple(prompt, prompt_type, platform, repo_code=None):
     system_prompt = load_prompt(prompt_type, None)
     user_message = f"Build a {'static website' if platform == 'github' else 'Python web app'}: {prompt}"
@@ -222,16 +156,74 @@ def generate_simple(prompt, prompt_type, platform, repo_code=None):
     files_dict, err = parse_ai_response(ai_content)
     if err:
         messages.append({"role": "assistant", "content": ai_content})
-        messages.append({"role": "user", "content": "Output ONLY valid JSON with a 'files' key. No explanations, no markdown. Start with { and end with }."})
+        messages.append({"role": "user", "content": "Output ONLY valid JSON with 'files' key. No markdown. Start with { and end with }."})
         ai_content = call_groq(messages)
         files_dict, err = parse_ai_response(ai_content)
         if err:
-            raise ValueError(f"Failed to generate code: {err}")
+            raise ValueError(f"Failed to generate: {err}")
     if "files" not in files_dict:
         files_dict = {"files": files_dict}
     return files_dict["files"]
 
-# ---------- Helper: Split inline CSS/JS for static sites ----------
+# ---------- Safety Net (embedded) ----------
+def apply_safety_net(files):
+    # Watermark handling
+    python_watermark = [
+        "# Created with GrishteSync",
+        "# https://suryasticsai.github.io/GrishteSync",
+        "# Suryasticsai | suryasticsai@gmail.com"
+    ]
+    python_watermark_str = "\n".join(python_watermark) + "\n\n"
+    html_footer = '<footer style="text-align: center; font-size: 0.7rem; color: #6c757d; margin-top: 2rem; padding: 1rem; border-top: 1px solid #dee2e6;">Made with ❤️ using <a href="https://suryasticsai.github.io/GrishteSync" target="_blank" style="color: #10b981;">GrishteSync</a> | Suryasticsai</footer>'
+    strip_extensions = {'.js','.jsx','.ts','.tsx','.css','.scss','.json','.yaml','.yml','.md','.sh','.bash','.dockerfile','.conf','.cfg','.ini','.toml','.xml','.vue','.php','.go','.rs','.java','.c','.cpp'}
+    for fname, content in list(files.items()):
+        ext = '.' + fname.split('.')[-1].lower() if '.' in fname else ''
+        if fname.endswith('.py'):
+            if not all(line in content for line in python_watermark):
+                content = python_watermark_str + content
+            files[fname] = content
+        elif ext in {'.html','.htm'}:
+            content = re.sub(r'<!--.*?GrishteSync.*?-->', '', content, flags=re.DOTALL)
+            content = re.sub(r'#.*?GrishteSync.*?\n', '', content)
+            if '</body>' in content and 'GrishteSync' not in content:
+                content = content.replace('</body>', html_footer + '\n</body>')
+            elif 'GrishteSync' not in content:
+                content += '\n' + html_footer
+            files[fname] = content
+        elif ext in strip_extensions:
+            content = re.sub(r'(#|//|;|--|%)\s*.*?GrishteSync.*?\n', '', content, flags=re.IGNORECASE)
+            content = re.sub(r'/\*.*?GrishteSync.*?\*/', '', content, flags=re.DOTALL|re.IGNORECASE)
+            content = re.sub(r'<!--.*?GrishteSync.*?-->', '', content, flags=re.DOTALL|re.IGNORECASE)
+            files[fname] = content
+
+    # Requirements.txt fixes
+    if "requirements.txt" in files:
+        req = files["requirements.txt"]
+        req = req.replace("grado","gradio").replace("gradio3","gradio").replace("gradio4","gradio")
+        req = re.sub(r'\b([a-zA-Z0-9_-]+)==([\d.]+)\b', r'\1>=\2', req)
+        if re.search(r'\btransformers\b', req, re.IGNORECASE) and not re.search(r'\btorch\b', req, re.IGNORECASE):
+            req += "\ntorch>=2.0.0"
+        lines = [line.strip() for line in req.split('\n') if line.strip() and not line.startswith('#')]
+        seen, unique = set(), []
+        for line in lines:
+            base = re.sub(r'[>=<!].*', '', line).lower()
+            if base not in seen:
+                seen.add(base)
+                unique.append(line)
+        unique.sort()
+        files["requirements.txt"] = "\n".join(unique)
+
+    # Gradio / Dash fixes
+    if "app.py" in files:
+        code = files["app.py"]
+        code = re.sub(r',?\s*allow_flagging\s*=\s*[^,)]+', '', code)
+        code = re.sub(r'demo\.queue\(\).*', '', code)
+        code = re.sub(r'(dbc\.Button\([^)]*?)block=True', r'\1style={\'width\': \'100%\'}', code)
+        files["app.py"] = code
+
+    return files
+
+# ---------- Helper: split inline CSS/JS ----------
 def split_inline_css_js(files):
     if 'index.html' not in files or len(files) > 1:
         return files
@@ -293,6 +285,61 @@ def sanitize_space_name(name):
     name = re.sub(r'-+', '-', name)
     return name.strip('-')[:96] or "grishte-app"
 
+# ---------- Embed page creation ----------
+def create_embed_page_and_push(app_name, space_url, github_token, username):
+    repo_name = "grishtesync-embeds"
+    subfolder = re.sub(r'[^a-z0-9-]', '', app_name.lower().replace(' ', '-').replace('_', '-'))
+    file_path = f"apps/{subfolder}/index.html"
+    embed_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{app_name} – Live Demo</title>
+    <style>
+        body{{margin:0;font-family:system-ui;background:#0a0c15;color:#e2e8f0;}}
+        header{{text-align:center;padding:1rem;background:#11131f;border-bottom:1px solid #10b981;}}
+        h1{{margin:0;font-size:1.5rem;background:linear-gradient(135deg,#10b981,#60a5fa);-webkit-background-clip:text;background-clip:text;color:transparent;}}
+        .container{{height:calc(100vh - 80px);width:100%;}}
+        iframe{{width:100%;height:100%;border:none;}}
+        footer{{text-align:center;padding:0.5rem;font-size:0.7rem;color:#8b92b0;background:#11131f;border-top:1px solid #1f2438;}}
+        footer a{{color:#10b981;text-decoration:none;}}
+    </style>
+</head>
+<body>
+    <header><h1>📱 {app_name}</h1></header>
+    <div class="container"><iframe src="{space_url}" title="{app_name}"></iframe></div>
+    <footer>Powered by <a href="https://suryasticsai.github.io/GrishteSync" target="_blank">GrishteSync</a> | Suryasticsai</footer>
+</body>
+</html>"""
+    gh_headers = {"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github.v3+json"}
+    repo_url = f"{GITHUB_API_URL}/repos/{username}/{repo_name}"
+    check = requests.get(repo_url, headers=gh_headers)
+    if check.status_code == 404:
+        create_payload = {"name": repo_name, "private": False, "auto_init": True, "description": "Auto-generated embed pages for GrishteSync apps"}
+        requests.post(f"{GITHUB_API_URL}/user/repos", headers=gh_headers, json=create_payload)
+        time.sleep(2)
+        pages_payload = {"source": {"branch": "main", "path": "/"}}
+        requests.post(f"{GITHUB_API_URL}/repos/{username}/{repo_name}/pages", headers=gh_headers, json=pages_payload)
+    try:
+        repo_info = requests.get(repo_url, headers=gh_headers).json()
+        default_branch = repo_info.get("default_branch", "main")
+    except:
+        default_branch = "main"
+    file_api_url = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/contents/{file_path}"
+    file_sha = None
+    get_file = requests.get(file_api_url, headers=gh_headers)
+    if get_file.status_code == 200:
+        file_sha = get_file.json().get("sha")
+    content_b64 = base64.b64encode(embed_html.encode("utf-8")).decode("utf-8")
+    commit_payload = {"message": f"Update embed for {app_name}", "content": content_b64, "branch": default_branch}
+    if file_sha:
+        commit_payload["sha"] = file_sha
+    put_resp = requests.put(file_api_url, headers=gh_headers, json=commit_payload)
+    if put_resp.status_code not in [200, 201]:
+        raise Exception(f"Failed to push embed: {put_resp.text[:200]}")
+    return f"https://{username}.github.io/{repo_name}/{file_path}"
+
 # ---------- Routes ----------
 @app.route("/auth/login")
 def github_login():
@@ -337,7 +384,6 @@ def list_repos():
     platform = request.args.get("platform", "github")
     auth_header = request.headers.get("Authorization", "")
     user_token = auth_header.replace("Bearer ", "").replace("token ", "") if auth_header else None
-    
     if platform == "github":
         if not user_token:
             return jsonify({"error": "GitHub token required"}), 401
@@ -379,7 +425,7 @@ def generate():
         user_token = auth_header.split(" ", 1)[1]
     if not user_prompt:
         return jsonify({"error": "Prompt is required."}), 400
-    
+
     existing_code = {}
     if repo_full_name:
         if platform == "github" and user_token:
@@ -400,22 +446,16 @@ def generate():
                 api = HfApi(token=HF_API_TOKEN)
                 files = api.list_repo_files(repo_id=repo_full_name, repo_type="space")
                 for filepath in files:
-                    if filepath.endswith(('.py', '.txt', '.md', '.html', '.css', '.js', '.json', '.yaml', '.yml')):
+                    if filepath.endswith(('.py', '.txt', '.md', '.html', '.css', '.js', '.json')):
                         try:
-                            content_bytes = hf_hub_download(
-                                repo_id=repo_full_name,
-                                filename=filepath,
-                                repo_type="space",
-                                token=HF_API_TOKEN,
-                                local_dir=None
-                            )
-                            with open(content_bytes, 'r', encoding='utf-8') as f:
+                            path = hf_hub_download(repo_id=repo_full_name, filename=filepath, repo_type="space", token=HF_API_TOKEN, local_dir=None)
+                            with open(path, 'r', encoding='utf-8') as f:
                                 existing_code[filepath] = f.read()
                         except Exception as e:
                             print(f"Failed to download {filepath}: {e}")
             except Exception as e:
                 print(f"Failed to fetch HF space: {e}")
-    
+
     try:
         generated_files = generate_simple(user_prompt, prompt_type, platform, existing_code)
         generated_files = apply_safety_net(generated_files)
@@ -437,28 +477,24 @@ def diagnose():
     error_log = data.get("error_log", "").strip()
     current_files = data.get("files", {})
     if not error_log or not current_files:
-        return jsonify({"error": "error_log and files are required"}), 400
-    
-    # Build context for fixer prompt
+        return jsonify({"error": "error_log and files required"}), 400
     context = {
         "error_log": error_log,
         "current_code": "\n".join([f"--- {fname} ---\n{content}" for fname, content in current_files.items()])
     }
-    fixer_prompt = load_prompt("fixer", context)  # fallback if fixer.txt missing
+    fixer_prompt = load_prompt("fixer", context)
     if not fixer_prompt or fixer_prompt == "You are an expert developer. Return ONLY valid JSON with a 'files' key.":
-        fixer_prompt = f"""You are an expert debugger. Fix the code based on the error log.
-Return ONLY a JSON object with a "files" key.
+        fixer_prompt = f"""Fix the code based on error log. Return ONLY JSON with "files" key.
 Current code:
 {context['current_code']}
 Error log:
-{error_log}
-"""
+{error_log}"""
     messages = [{"role": "system", "content": fixer_prompt}, {"role": "user", "content": "Fix the error and return corrected files as JSON."}]
     try:
         ai_content = call_groq(messages)
         files_dict, err = parse_ai_response(ai_content)
         if err:
-            return jsonify({"error": f"Failed to parse AI response: {err}"}), 500
+            return jsonify({"error": f"Parse error: {err}"}), 500
         if "files" not in files_dict:
             files_dict = {"files": files_dict}
         fixed_files = apply_safety_net(files_dict["files"])
@@ -482,7 +518,7 @@ def deploy():
     version = data.get("version", "0.0.0")
     app_description = data.get("pr_description", "AI-generated project")
     if not repo_name:
-        return jsonify({"error": "repo_name is required"}), 400
+        return jsonify({"error": "repo_name required"}), 400
     gh_headers = {"Authorization": f"Bearer {user_token}", "Accept": "application/vnd.github.v3+json"}
     try:
         user_resp = requests.get(f"{GITHUB_API_URL}/user", headers=gh_headers, timeout=10)
@@ -572,12 +608,20 @@ def deploy_hf():
             return jsonify({"error": "Invalid JSON body"}), 400
         platform = data.get("platform", "huggingface")
         if platform == "github":
-            return jsonify({"error": "WebApp projects cannot be deployed to Hugging Face. Use GitHub Pages only."}), 400
+            return jsonify({"error": "Cannot deploy webapp to HF"}), 400
         repo_full_name = data.get("repo_full_name")
         if not repo_full_name:
-            return jsonify({"error": "repo_full_name is required"}), 400
+            return jsonify({"error": "repo_full_name required"}), 400
         if not HF_API_TOKEN:
             return jsonify({"error": "HF_API_TOKEN not configured"}), 500
+
+        # Extract username and token from request (for embed page)
+        user_token = None
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            user_token = auth_header.split(" ")[1]
+        app_name = data.get("app_name", repo_full_name.split("/")[-1] if "/" in repo_full_name else repo_full_name)
+
         if "/" in repo_full_name:
             username = repo_full_name.split("/")[0]
             raw_space_name = data.get("space_name", repo_full_name.split("/")[1])
@@ -588,10 +632,12 @@ def deploy_hf():
             except:
                 return jsonify({"error": "Could not determine HF username"}), 500
             raw_space_name = data.get("space_name", repo_full_name)
+
         space_name = sanitize_space_name(raw_space_name)
         files = data.get("files", {})
         if not any(f.endswith(".py") for f in files):
-            return jsonify({"error": "No Python files found. Hugging Face requires a Python app."}), 400
+            return jsonify({"error": "No Python files found. HF requires Python app."}), 400
+
         # Detect SDK
         if any("import streamlit" in content for content in files.get("app.py", "")):
             sdk = "streamlit"
@@ -599,6 +645,7 @@ def deploy_hf():
         else:
             sdk = "gradio"
             sdk_version = "6.18.0"
+
         readme_content = f"""---
 title: {space_name}
 emoji: 🐍
@@ -621,11 +668,14 @@ Deployed by GrishteSync
             if fname.endswith(".py") and "launch" in content:
                 if "server_name" not in content and "server_port" not in content:
                     files[fname] = content.replace(".launch(", ".launch(server_name='0.0.0.0', server_port=7860, ")
+
         files = apply_safety_net(files)
+
         temp_dir = tempfile.mkdtemp()
         space_repo_url = f"https://{username}:{HF_API_TOKEN}@huggingface.co/spaces/{username}/{space_name}"
         subprocess.run(["git", "config", "--global", "user.email", "grishtesync@render.com"], check=False)
         subprocess.run(["git", "config", "--global", "user.name", "GrishteSync Bot"], check=False)
+
         clone_result = subprocess.run(["git", "clone", space_repo_url, temp_dir], capture_output=True)
         if clone_result.returncode != 0:
             try:
@@ -634,6 +684,7 @@ Deployed by GrishteSync
                 subprocess.run(["git", "clone", space_repo_url, temp_dir], check=True, capture_output=True)
             except Exception as e:
                 return jsonify({"error": f"Failed to create Space: {str(e)}"}), 500
+
         for item in os.listdir(temp_dir):
             if item == ".git":
                 continue
@@ -642,20 +693,31 @@ Deployed by GrishteSync
                 shutil.rmtree(item_path)
             else:
                 os.remove(item_path)
+
         for filepath, content in files.items():
             file_path = os.path.join(temp_dir, filepath)
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
+
         subprocess.run(["git", "-C", temp_dir, "add", "."], check=True)
         status_result = subprocess.run(["git", "-C", temp_dir, "status", "--porcelain"], capture_output=True, text=True)
         if status_result.stdout.strip():
             subprocess.run(["git", "-C", temp_dir, "commit", "-m", f"Deploy from GrishteSync v{int(time.time())}"], check=True)
             subprocess.run(["git", "-C", temp_dir, "push", "origin", "HEAD:main", "--force"], check=True)
+
         space_url = f"https://huggingface.co/spaces/{username}/{space_name}"
+        embed_url = None
+        if user_token:
+            try:
+                embed_url = create_embed_page_and_push(app_name, space_url, user_token, username)
+            except Exception as e:
+                print(f"Embed creation failed: {e}")
+
         return jsonify({
             "status": "success",
             "space_url": space_url,
+            "embed_url": embed_url,
             "space_full_name": f"{username}/{space_name}",
             "deploy_time": round(time.time() - start_time, 1)
         })
@@ -667,7 +729,7 @@ Deployed by GrishteSync
 
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "5.1"})
+    return jsonify({"status": "GrishteSync backend running", "version": "5.2"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
