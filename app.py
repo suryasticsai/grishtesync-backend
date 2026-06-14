@@ -1,15 +1,29 @@
 import os
+import re
+import json
+import base64
 import time
 import traceback
-from flask import Flask, request, jsonify, redirect
+import datetime
+import tempfile
+import shutil
+import subprocess
+import requests
+from flask import Flask, request, jsonify, redirect, make_response
 from flask_cors import CORS
-from ai_client import generate_simple, load_prompt, call_groq, parse_ai_response
+from urllib.parse import urlencode
+from huggingface_hub import HfApi, create_repo, hf_hub_download
+
+# Import helpers
 from safety_net import apply_safety_net
+from ai_client import generate_simple, call_groq, parse_ai_response, load_prompt
 from github_helpers import github_login_redirect, github_callback_handler, create_or_update_repo, push_files_to_branch, create_pull_request, enable_github_pages
 from hf_helpers import deploy_to_hf_space, create_embed_page, sanitize_space_name
-import requests
+from readme_helpers import generate_detailed_readme
 
 app = Flask(__name__)
+
+# ---------- CORS ----------
 FRONTEND_URLS = [
     "https://suryasticsai.github.io",
     "http://localhost:3000",
@@ -37,13 +51,18 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     return response
 
-GITHUB_API_URL = "https://api.github.com"
+# ---------- Environment ----------
+def validate_env_vars():
+    required = ["GROQ_API_KEY", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"]
+    missing = [var for var in required if not os.environ.get(var)]
+    if missing:
+        print(f"WARNING: Missing env vars: {', '.join(missing)}")
+    if not os.environ.get("HF_API_TOKEN"):
+        print("WARNING: HF_API_TOKEN not set. HF features limited.")
+validate_env_vars()
 
-def safe_json(resp):
-    try:
-        return resp.json(), None
-    except:
-        return None, f"JSON parse failed: {resp.text[:300]}"
+GITHUB_API_URL = "https://api.github.com"
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://suryasticsai.github.io/GrishteSync/")
 
 # ---------- Routes ----------
 @app.route("/auth/login")
@@ -58,7 +77,7 @@ def callback():
     token, username = github_callback_handler(code)
     if not token:
         return jsonify({"error": "GitHub auth failed"}), 500
-    return redirect(f"{os.environ.get('FRONTEND_URL', 'https://suryasticsai.github.io/GrishteSync/')}?token={token}&github_user={username}")
+    return redirect(f"{FRONTEND_URL}?token={token}&github_user={username}")
 
 @app.route("/api/list-repos", methods=["GET"])
 def list_repos():
@@ -77,7 +96,6 @@ def list_repos():
     elif platform == "huggingface":
         if not os.environ.get("HF_API_TOKEN"):
             return jsonify({"error": "HF_API_TOKEN not configured"}), 500
-        from huggingface_hub import HfApi
         api = HfApi(token=os.environ["HF_API_TOKEN"])
         user = api.whoami()["name"]
         spaces = api.list_spaces(author=user)
@@ -105,14 +123,16 @@ def generate():
         except:
             pass
     elif repo_full_name and platform == "huggingface" and os.environ.get("HF_API_TOKEN"):
-        from huggingface_hub import HfApi, hf_hub_download
-        api = HfApi(token=os.environ["HF_API_TOKEN"])
-        files = api.list_repo_files(repo_id=repo_full_name, repo_type="space")
-        for f in files:
-            if f.endswith(('.py','.txt','.md','.html','.css','.js')):
-                path = hf_hub_download(repo_id=repo_full_name, filename=f, repo_type="space", token=os.environ["HF_API_TOKEN"])
-                with open(path, 'r') as file:
-                    existing_code[f] = file.read()
+        try:
+            api = HfApi(token=os.environ["HF_API_TOKEN"])
+            files = api.list_repo_files(repo_id=repo_full_name, repo_type="space")
+            for f in files:
+                if f.endswith(('.py','.txt','.md','.html','.css','.js')):
+                    path = hf_hub_download(repo_id=repo_full_name, filename=f, repo_type="space", token=os.environ["HF_API_TOKEN"])
+                    with open(path, 'r') as file:
+                        existing_code[f] = file.read()
+        except:
+            pass
 
     try:
         generated_files = generate_simple(user_prompt, prompt_type, platform, existing_code)
@@ -150,7 +170,6 @@ def diagnose():
         fixer_prompt = f"Fix the code based on error log. Return ONLY JSON with 'files' key.\nCurrent code:\n{context['current_code']}\nError log:\n{error_log}"
     messages = [{"role": "system", "content": fixer_prompt}, {"role": "user", "content": "Fix and return corrected files as JSON."}]
     try:
-        from ai_client import call_groq, parse_ai_response
         ai_content = call_groq(messages)
         files_dict, err = parse_ai_response(ai_content)
         if err:
@@ -194,8 +213,13 @@ def deploy_github():
     # Create PR
     pr_url = create_pull_request(username, repo_name, branch_name, default_branch, f"GrishteSync update v{version}", f"Files: {', '.join(files.keys())}", user_token)
     # Generate README and enable Pages
-    readme_content = f"# {app_name}\n\n{prompt}\n\nDeployed by GrishteSync."
-    pages_url = enable_github_pages(f"{username}/{repo_name}", user_token, readme_content)
+    pages_url = None
+    try:
+        deploy_url = f"https://{username}.github.io/{repo_name}/"
+        readme_content = generate_detailed_readme(app_name, prompt, files, deploy_url, platform='github')
+        pages_url = enable_github_pages(f"{username}/{repo_name}", user_token, readme_content)
+    except:
+        pass
     return jsonify({
         "status": "success",
         "repo_url": f"https://github.com/{username}/{repo_name}",
@@ -217,7 +241,6 @@ def deploy_hf():
         return jsonify({"error": "repo_full_name and files required"}), 400
     if not os.environ.get("HF_API_TOKEN"):
         return jsonify({"error": "HF_API_TOKEN not set"}), 500
-    from huggingface_hub import HfApi
     api = HfApi(token=os.environ["HF_API_TOKEN"])
     try:
         username = api.whoami()["name"]
@@ -234,8 +257,7 @@ def deploy_hf():
     # Create embed page (if GitHub token available)
     embed_url = None
     if user_token:
-        # Generate detailed README for embed
-        readme_for_embed = f"# {app_name}\n\n{prompt}\n\nLive Space: {space_url}"
+        readme_for_embed = generate_detailed_readme(app_name, prompt, files, space_url, platform='huggingface')
         embed_url = create_embed_page(app_name, space_url, user_token, username, readme_for_embed)
     return jsonify({
         "status": "success",
@@ -247,9 +269,7 @@ def deploy_hf():
 
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "5.4"})
+    return jsonify({"status": "GrishteSync backend running", "version": "5.5"})
 
 if __name__ == "__main__":
-    import re
-    from flask import make_response
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
