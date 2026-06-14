@@ -10,7 +10,6 @@ GITHUB_CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET")
 GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_API_URL = "https://api.github.com"
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://suryasticsai.github.io/GrishteSync/")
 
 def safe_json(resp):
     try:
@@ -57,24 +56,6 @@ def create_or_update_repo(username, repo_name, github_token):
         if create_resp.status_code not in [200, 201]:
             raise Exception(f"Failed to create repo: {create_resp.text[:300]}")
         time.sleep(2)
-    return repo_url
-
-def enable_github_pages(repo_full_name, github_token, readme_content):
-    owner, repo = repo_full_name.split('/')
-    gh_headers = {"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github.v3+json"}
-    # Enable Pages
-    pages_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/pages"
-    payload = {"source": {"branch": "main", "path": "/"}}
-    requests.post(pages_url, headers=gh_headers, json=payload)
-    # Push README
-    encoded = base64.b64encode(readme_content.encode()).decode()
-    readme_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/contents/README.md"
-    get_resp = requests.get(readme_url, headers=gh_headers)
-    payload_readme = {"message": "Add documentation", "content": encoded, "branch": "main"}
-    if get_resp.status_code == 200:
-        payload_readme["sha"] = get_resp.json()["sha"]
-    requests.put(readme_url, headers=gh_headers, json=payload_readme)
-    return f"https://{owner}.github.io/{repo}/"
 
 def push_files_to_branch(username, repo_name, files, github_token, branch_name, commit_message):
     gh_headers = {"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github.v3+json"}
@@ -96,3 +77,18 @@ def create_pull_request(username, repo_name, head_branch, base_branch, title, bo
     if pr_resp.status_code in [200, 201]:
         return pr_resp.json().get("html_url")
     return None
+
+def enable_github_pages(repo_full_name, github_token, readme_content):
+    owner, repo = repo_full_name.split('/')
+    gh_headers = {"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github.v3+json"}
+    pages_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/pages"
+    payload = {"source": {"branch": "main", "path": "/"}}
+    requests.post(pages_url, headers=gh_headers, json=payload)
+    encoded = base64.b64encode(readme_content.encode()).decode()
+    readme_url = f"{GITHUB_API_URL}/repos/{repo_full_name}/contents/README.md"
+    get_resp = requests.get(readme_url, headers=gh_headers)
+    payload_readme = {"message": "Add documentation", "content": encoded, "branch": "main"}
+    if get_resp.status_code == 200:
+        payload_readme["sha"] = get_resp.json()["sha"]
+    requests.put(readme_url, headers=gh_headers, json=payload_readme)
+    return f"https://{owner}.github.io/{repo}/"
