@@ -32,7 +32,7 @@ footer{{text-align:center;padding:0.5rem;font-size:0.7rem;color:#8b92b0;backgrou
 footer a{{color:#10b981;text-decoration:none;}}
 </style>
 </head>
-<body><header><h1>📱 {app_name}</h1></header>
+<body><header><h1>{app_name}</h1></header>
 <div class="container"><iframe src="{space_url}"></iframe></div>
 <footer>Powered by <a href="https://suryasticsai.github.io/GrishteSync">GrishteSync</a> | Suryasticsai</footer>
 </body>
@@ -61,7 +61,7 @@ footer a{{color:#10b981;text-decoration:none;}}
     if file_sha:
         commit_payload["sha"] = file_sha
     requests.put(file_api_url, headers=gh_headers, json=commit_payload)
-    # Also push README
+    # Push README
     readme_b64 = base64.b64encode(readme_content.encode()).decode()
     readme_path = f"apps/{subfolder}/README.md"
     readme_payload = {"message": f"Add README for {app_name}", "content": readme_b64, "branch": default_branch}
@@ -91,7 +91,6 @@ pinned: false
     files["README.md"] = readme_content
     if "requirements.txt" not in files:
         files["requirements.txt"] = "gradio>=4.0.0\nhuggingface_hub>=0.10.1"
-    # Ensure Gradio launch parameters
     for fname, content in files.items():
         if fname.endswith(".py") and "launch" in content:
             if "server_name" not in content and "server_port" not in content:
