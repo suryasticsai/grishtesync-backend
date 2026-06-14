@@ -60,3 +60,15 @@ pip install -r requirements.txt
 
 # Run the app
 {run_instructions}
+
+# How it was built
+
+This application was generated using GrishteSync – just type a prompt, and the AI creates the entire codebase, deploys it, and even fixes errors automatically.
+
+# License
+
+# © Suryasticsai
+
+Made with ❤️ by GrishteSync
+"""
+return readme
