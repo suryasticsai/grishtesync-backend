@@ -1,33 +1,45 @@
 import re
 
-def generate_detailed_readme(app_name, prompt, files, deploy_url, platform='github'):
-    has_db = any('sqlite' in f or 'database' in f for f in files.values())
-    has_search = any('search' in f for f in files.values())
-    has_auth = any('login' in f or 'auth' in f for f in files.values())
-    has_dark_mode = any('dark' in f.lower() for f in files.values())
+
+def generate_detailed_readme(app_name, prompt, files, deploy_url, platform="github"):
+    has_db = any("sqlite" in f or "database" in f for f in files.values())
+    has_search = any("search" in f for f in files.values())
+    has_auth = any("login" in f or "auth" in f for f in files.values())
+    has_dark_mode = any("dark" in f.lower() for f in files.values())
     frameworks = []
     all_code = "\n".join(files.values())
-    if 'gradio' in all_code: frameworks.append('Gradio')
-    if 'streamlit' in all_code: frameworks.append('Streamlit')
-    if 'flask' in all_code: frameworks.append('Flask')
-    if 'django' in all_code: frameworks.append('Django')
-    if 'fastapi' in all_code: frameworks.append('FastAPI')
-    if not frameworks: frameworks.append('Python (generic)')
-    
+    if "gradio" in all_code:
+        frameworks.append("Gradio")
+    if "streamlit" in all_code:
+        frameworks.append("Streamlit")
+    if "flask" in all_code:
+        frameworks.append("Flask")
+    if "django" in all_code:
+        frameworks.append("Django")
+    if "fastapi" in all_code:
+        frameworks.append("FastAPI")
+    if not frameworks:
+        frameworks.append("Python (generic)")
+
     features = []
-    if has_db: features.append('🗄️ Database integration (SQLite)')
-    if has_search: features.append('🔍 Search functionality')
-    if has_auth: features.append('🔐 User authentication')
-    if has_dark_mode: features.append('🌙 Dark mode support')
-    if not features: features.append('✨ Core app functionality')
-    features_bullets = '\n'.join(f'  - {f}' for f in features)
-    
-    if platform == 'github':
-        demo_badge = f'[![GitHub Pages](https://img.shields.io/badge/🌐-Live%20Demo-blue)]({deploy_url})'
-        run_instructions = 'Open `index.html` in your browser or serve with `python -m http.server 8000`'
+    if has_db:
+        features.append("🗄️ Database integration (SQLite)")
+    if has_search:
+        features.append("🔍 Search functionality")
+    if has_auth:
+        features.append("🔐 User authentication")
+    if has_dark_mode:
+        features.append("🌙 Dark mode support")
+    if not features:
+        features.append("✨ Core app functionality")
+    features_bullets = "\n".join(f"  - {f}" for f in features)
+
+    if platform == "github":
+        demo_badge = f"[![GitHub Pages](https://img.shields.io/badge/🌐-Live%20Demo-blue)]({deploy_url})"
+        run_instructions = "Open `index.html` in your browser or serve with `python -m http.server 8000`"
     else:
-        demo_badge = f'[![Hugging Face Space](https://img.shields.io/badge/🤗-Live%20Demo-yellow)]({deploy_url})'
-        run_instructions = 'The Space will build automatically. After a few minutes the app will be live at the URL above.'
+        demo_badge = f"[![Hugging Face Space](https://img.shields.io/badge/🤗-Live%20Demo-yellow)]({deploy_url})"
+        run_instructions = "The Space will build automatically. After a few minutes the app will be live at the URL above."
 
     readme = f"""# {app_name}
 
@@ -71,4 +83,6 @@ This application was generated using GrishteSync – just type a prompt, and the
 
 Made with ❤️ by GrishteSync
 """
+
+
 return readme
