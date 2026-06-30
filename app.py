@@ -431,7 +431,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (SIMPLIFIED & WORKING) ----------
+# ---------- Deploy to Hugging Face (FIXED) ----------
 
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
@@ -452,25 +452,42 @@ def deploy_hf():
 
         raw_space_name = data.get("space_name", repo_full_name.split("/")[1])
         space_name = sanitize_space_name(raw_space_name)
-        sdk = data.get("sdk", "streamlit")
+        
+        # Default to gradio (most common for HF Spaces)
+        sdk = data.get("sdk", "gradio")
         files = data.get("files", {})
 
         if not files or len(files) == 0:
-            return jsonify({"error": "No files to deploy"}), 400
+            return jsonify({"error": "No files to deploy"}), 500
 
-        # Auto-detect SDK from files
+        # Auto-detect SDK and ensure valid options
+        detected_sdk = None
         for filename, content in files.items():
             if filename.endswith(".py"):
                 content_lower = content.lower()
                 if "gradio" in content_lower:
-                    sdk = "gradio"
+                    detected_sdk = "gradio"
                     break
                 elif "streamlit" in content_lower:
-                    sdk = "streamlit"
+                    # Streamlit apps should use "docker" as SDK
+                    detected_sdk = "docker"
                     break
                 elif "flask" in content_lower:
-                    sdk = "docker"
+                    detected_sdk = "docker"
                     break
+
+        # If we detected a valid SDK, use it. Otherwise default to gradio
+        if detected_sdk:
+            sdk = detected_sdk
+        
+        # Ensure SDK is one of the valid options for HF Spaces
+        valid_sdks = ["gradio", "docker", "static"]
+        if sdk not in valid_sdks:
+            # If the user specified something invalid, default to gradio
+            if "streamlit" in sdk.lower():
+                sdk = "docker"  # Streamlit apps work with docker SDK
+            else:
+                sdk = "gradio"  # Fallback to gradio
 
         # Initialize Hugging Face API
         api = HfApi(token=hf_token)
@@ -486,7 +503,11 @@ def deploy_hf():
 
         # Check if space exists, create if not
         try:
-            if not repo_exists(repo_id, repo_type="space", token=hf_token):
+            # First check if it exists
+            space_exists = repo_exists(repo_id, repo_type="space", token=hf_token)
+            
+            if not space_exists:
+                # Create the space with the correct SDK
                 create_repo(
                     repo_id,
                     repo_type="space",
@@ -494,9 +515,31 @@ def deploy_hf():
                     token=hf_token,
                     exist_ok=True
                 )
-                time.sleep(3)  # Wait for space to initialize
+                time.sleep(5)  # Wait for space to initialize
+            else:
+                # Space exists, we'll just proceed
+                pass
         except Exception as e:
-            return jsonify({"error": f"Failed to create/access Space: {str(e)}"}), 500
+            error_msg = str(e)
+            # If it's a bad request with SDK error, try with gradio
+            if "Invalid option" in error_msg or "expected one of" in error_msg:
+                try:
+                    # Try creating with gradio as fallback
+                    create_repo(
+                        repo_id,
+                        repo_type="space",
+                        space_sdk="gradio",
+                        token=hf_token,
+                        exist_ok=True
+                    )
+                    sdk = "gradio"
+                    time.sleep(5)
+                except Exception as e2:
+                    return jsonify({
+                        "error": f"Failed to create Space even with gradio fallback: {str(e2)}"
+                    }), 500
+            else:
+                return jsonify({"error": f"Failed to create/access Space: {error_msg}"}), 500
 
         # Upload files one by one
         uploaded = []
@@ -549,7 +592,7 @@ def deploy_hf():
 
 @app.route("/")
 def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "0.4"})
+    return jsonify({"status": "GrishteSync backend running", "version": "0.5"})
 
 # ---------- Inline Edit and Review Endpoints ----------
 
@@ -566,7 +609,7 @@ def edit_selection():
         all_files = data.get('all_files', {})
 
         if not instruction or not selected_code or not filename:
-            return jsonify({'error': 'Missing required fields'}), 400
+            return jsonify({'error': 'Missing required fields: instruction, selected_code, filename'}), 400
 
         project_context = "\n".join(
             [f"--- {name} ---\n{content}" for name, content in all_files.items()]
