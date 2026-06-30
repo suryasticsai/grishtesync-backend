@@ -69,6 +69,16 @@ def sanitize_space_name(name):
     name = name.strip('-')
     return name[:96] or "grishte-app"
 
+def load_prompt(filename):
+    """Load a prompt template from the prompts/ folder."""
+    prompt_path = os.path.join('prompts', filename)
+    try:
+        with open(prompt_path, 'r') as f:
+            return f.read()
+    except FileNotFoundError:
+        app.logger.error(f"Prompt file not found: {prompt_path}")
+        return ""
+
 # ---------- GitHub OAuth Routes ----------
 
 @app.route("/auth/login")
@@ -137,6 +147,11 @@ def generate():
 
     if not prompt:
         return jsonify({"error": "Prompt is required."}), 400
+
+    # Extract app name from prompt
+    app_name = prompt.split()[0].title() if prompt else "MyApp"
+    if len(app_name) > 30:
+        app_name = app_name[:30]
 
     system_prompt = (
         "You are an expert Python developer. "
@@ -267,13 +282,25 @@ def generate():
         if "files" not in generated:
             generated = {"files": generated}
 
+        files = generated.get("files", {})
+        
+        # Ensure requirements.txt exists
+        if "requirements.txt" not in files:
+            requirements = """# Requirements for GrishteSync generated app
+flask>=2.0.0
+python-dotenv>=1.0.0
+requests>=2.28.0
+"""
+            files["requirements.txt"] = requirements
+
+        generated["files"] = files
         generated["generate_time"] = round(time.time() - start_time, 1)
         return jsonify(generated)
 
     except Exception as e:
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
-# ---------- Deploy to GitHub (Bearer token) ----------
+# ---------- Deploy to GitHub ----------
 
 @app.route("/api/deploy", methods=["POST"])
 def deploy():
@@ -404,7 +431,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face ----------
+# ---------- Deploy to Hugging Face (SIMPLIFIED & WORKING) ----------
 
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
@@ -418,73 +445,102 @@ def deploy_hf():
         if not repo_full_name:
             return jsonify({"error": "repo_full_name is required"}), 400
 
+        # Get token from request or environment
+        hf_token = data.get("token") or HF_API_TOKEN
+        if not hf_token:
+            return jsonify({"error": "HF API token required. Set HF_API_TOKEN environment variable or pass in request."}), 400
+
         raw_space_name = data.get("space_name", repo_full_name.split("/")[1])
         space_name = sanitize_space_name(raw_space_name)
         sdk = data.get("sdk", "streamlit")
         files = data.get("files", {})
 
-        # Auto-detect SDK
+        if not files or len(files) == 0:
+            return jsonify({"error": "No files to deploy"}), 400
+
+        # Auto-detect SDK from files
         for filename, content in files.items():
-            lower = content.lower()
-            if filename.endswith(".py") and ("app" in filename.lower() or "main" in filename.lower()):
-                if "gradio" in lower: sdk = "gradio"; break
-                if "streamlit" in lower: sdk = "streamlit"; break
-                if "flask" in lower: sdk = "docker"; break
-        for filename, content in files.items():
-            if filename == "requirements.txt":
-                lower = content.lower()
-                if "gradio" in lower and sdk != "docker": sdk = "gradio"
-                elif "streamlit" in lower and sdk != "docker": sdk = "streamlit"
-                elif "flask" in lower: sdk = "docker"
-                break
+            if filename.endswith(".py"):
+                content_lower = content.lower()
+                if "gradio" in content_lower:
+                    sdk = "gradio"
+                    break
+                elif "streamlit" in content_lower:
+                    sdk = "streamlit"
+                    break
+                elif "flask" in content_lower:
+                    sdk = "docker"
+                    break
 
-        if sdk not in ("gradio", "streamlit", "docker", "static"):
-            sdk = "streamlit"
+        # Initialize Hugging Face API
+        api = HfApi(token=hf_token)
 
-        if not HF_API_TOKEN:
-            return jsonify({"error": "HF_API_TOKEN not configured on server"}), 500
-
-        api = HfApi(token=HF_API_TOKEN)
-
+        # Get username from token
         try:
             whoami = api.whoami()
             hf_username = whoami["name"]
         except Exception as e:
-            return jsonify({"error": f"HF token invalid or network error: {str(e)}"}), 500
+            return jsonify({"error": f"Invalid HF token: {str(e)}"}), 401
 
         repo_id = f"{hf_username}/{space_name}"
 
-        if not repo_exists(repo_id, repo_type="space", token=HF_API_TOKEN):
-            try:
-                create_repo(repo_id, repo_type="space", space_sdk=sdk, token=HF_API_TOKEN, exist_ok=True)
-                time.sleep(5)
-            except Exception as e:
-                return jsonify({"error": f"Failed to create Space: {str(e)}"}), 500
+        # Check if space exists, create if not
+        try:
+            if not repo_exists(repo_id, repo_type="space", token=hf_token):
+                create_repo(
+                    repo_id,
+                    repo_type="space",
+                    space_sdk=sdk,
+                    token=hf_token,
+                    exist_ok=True
+                )
+                time.sleep(3)  # Wait for space to initialize
+        except Exception as e:
+            return jsonify({"error": f"Failed to create/access Space: {str(e)}"}), 500
 
-        # Upload files
+        # Upload files one by one
+        uploaded = []
+        failed = []
+        
         for filepath, content in files.items():
-            file_obj = io.BytesIO(content.encode("utf-8"))
             try:
+                # Skip if content is empty
+                if not content or len(content.strip()) == 0:
+                    continue
+                    
+                file_obj = io.BytesIO(content.encode("utf-8"))
                 api.upload_file(
                     path_or_fileobj=file_obj,
                     path_in_repo=filepath,
                     repo_id=repo_id,
                     repo_type="space",
-                    token=HF_API_TOKEN
+                    token=hf_token
                 )
+                uploaded.append(filepath)
             except Exception as e:
-                return jsonify({"error": f"Failed to upload {filepath}: {str(e)}"}), 500
+                failed.append(f"{filepath}: {str(e)}")
+
+        # Check if any files were uploaded
+        if not uploaded:
+            return jsonify({
+                "error": "No files were uploaded successfully",
+                "failed": failed
+            }), 500
 
         return jsonify({
             "status": "success",
             "space_url": f"https://huggingface.co/spaces/{repo_id}",
             "sdk": sdk,
+            "uploaded_files": uploaded,
+            "failed_files": failed if failed else None,
             "deploy_time": round(time.time() - start_time, 1)
         })
 
     except Exception as e:
+        app.logger.error(f"HF deploy error: {str(e)}")
+        app.logger.error(traceback.format_exc())
         return jsonify({
-            "error": "Internal server error in deploy_hf",
+            "error": "HF deployment failed",
             "details": str(e),
             "trace": traceback.format_exc()
         }), 500
@@ -495,15 +551,7 @@ def deploy_hf():
 def health():
     return jsonify({"status": "GrishteSync backend running", "version": "0.4"})
 
-# ---------- NEW ROUTES FOR INLINE EDITING ----------
-
-def load_prompt(filename):
-    prompt_path = os.path.join('prompts', filename)
-    try:
-        with open(prompt_path, 'r') as f:
-            return f.read()
-    except FileNotFoundError:
-        return ""
+# ---------- Inline Edit and Review Endpoints ----------
 
 @app.route("/api/edit-selection", methods=["POST"])
 def edit_selection():
@@ -536,16 +584,22 @@ def edit_selection():
             instruction=instruction
         )
 
-        messages = [
-            {"role": "system", "content": "You are an expert software engineer. Output ONLY the replacement code, no explanations."},
-            {"role": "user", "content": prompt}
-        ]
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
         
-        resp = requests.post(GROQ_API_URL,
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-            json={"model": "llama3-70b-8192", "messages": messages, "temperature": 0.3, "max_tokens": 4096},
-            timeout=60
-        )
+        payload = {
+            "model": MODEL_NAME,
+            "messages": [
+                {"role": "system", "content": "You are an expert software engineer. Output ONLY the replacement code, no explanations."},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 4096
+        }
+        
+        resp = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=60)
         resp.raise_for_status()
         replacement = resp.json()["choices"][0]["message"]["content"].strip()
         
