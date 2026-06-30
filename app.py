@@ -6,28 +6,66 @@ from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from groq import Groq
 from dotenv import load_dotenv
+import requests
+import base64
 
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-key')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
-CORS(app, origins=["http://localhost:5500", "http://127.0.0.1:5500", "https://suryasticsai.github.io"])
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB
+
+# Allow CORS for your frontend domains
+CORS(app, origins=[
+    "http://localhost:5500",
+    "http://127.0.0.1:5500",
+    "https://suryasticsai.github.io",
+    "https://grishtesync.netlify.app",  # if you use Netlify
+    "*"  # or use '*' for development, but tighten for production
+])
 
 logging.basicConfig(level=logging.INFO)
 
-# Groq client – if this fails, the app will log the error and still start
-try:
-    groq_client = Groq(api_key=os.getenv('GROQ_API_KEY'))
-except Exception as e:
-    logging.error(f"Failed to initialize Groq: {e}")
+# ---------- Groq Client ----------
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+if not GROQ_API_KEY:
+    logging.error("GROQ_API_KEY environment variable not set.")
     groq_client = None
+else:
+    try:
+        groq_client = Groq(api_key=GROQ_API_KEY)
+    except Exception as e:
+        logging.error(f"Failed to initialize Groq client: {e}")
+        groq_client = None
 
+# ---------- Helpers ----------
 def load_prompt(filename):
-    with open(os.path.join('prompts', filename), 'r') as f:
-        return f.read()
+    """Load a prompt template from the prompts/ folder."""
+    prompt_path = os.path.join('prompts', filename)
+    try:
+        with open(prompt_path, 'r') as f:
+            return f.read()
+    except FileNotFoundError:
+        logging.error(f"Prompt file not found: {prompt_path}")
+        return ""
 
-# ---------- HEALTH CHECK (CRITICAL FOR RENDER) ----------
+def call_groq(prompt, model="llama3-70b-8192", temperature=0.7, max_tokens=8192):
+    """Centralized Groq API call with error handling."""
+    if groq_client is None:
+        raise RuntimeError("Groq client not initialized. Check API key.")
+    try:
+        response = groq_client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        logging.error(f"Groq API error: {e}")
+        raise
+
+# ---------- Health Checks (critical for Render) ----------
 @app.route('/')
 def health_check():
     return jsonify({"status": "ok", "service": "GrishteSync Backend"}), 200
@@ -36,10 +74,10 @@ def health_check():
 def health():
     return jsonify({"status": "healthy"}), 200
 
-# ---------- API ROUTES ----------
-
+# ---------- Existing Routes ----------
 @app.route('/api/generate', methods=['POST'])
 def generate_code():
+    """Generate code based on description and project type."""
     try:
         data = request.get_json()
         if not data or 'description' not in data:
@@ -51,31 +89,26 @@ def generate_code():
         if not description:
             return jsonify({'error': 'Description cannot be empty'}), 400
 
-        # Select prompt
+        # Select the appropriate prompt
         if project_type == 'fullstack':
             prompt_template = load_prompt('fullstack_generate.txt')
         else:
             prompt_template = load_prompt('generate.txt')  # your existing generic prompt
 
+        if not prompt_template:
+            return jsonify({'error': 'Prompt template not found'}), 500
+
         prompt = prompt_template.format(description=description)
 
-        if groq_client is None:
-            return jsonify({'error': 'Groq client not initialized. Check API key.'}), 500
+        result_text = call_groq(prompt, temperature=0.7, max_tokens=8192)
 
-        response = groq_client.chat.completions.create(
-            model="llama3-70b-8192",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=8192
-        )
-        result_text = response.choices[0].message.content
-
-        # Parse JSON
+        # Parse JSON from the response
         try:
             result_json = json.loads(result_text)
             files = result_json.get('files', {})
             readme = result_json.get('readme', '')
         except json.JSONDecodeError:
+            # Try to extract JSON from markdown code block
             match = re.search(r'```json\s*(\{.*?\})\s*```', result_text, re.DOTALL)
             if match:
                 result_json = json.loads(match.group(1))
@@ -85,8 +118,10 @@ def generate_code():
                 app.logger.error(f"Failed to parse JSON from: {result_text[:200]}")
                 return jsonify({'error': 'Failed to parse AI response as JSON'}), 500
 
+        # Store in session for later deployment
         session['generated_files'] = files
         session['readme'] = readme
+
         return jsonify({'files': files, 'readme': readme})
 
     except Exception as e:
@@ -95,6 +130,7 @@ def generate_code():
 
 @app.route('/api/deploy-github', methods=['POST'])
 def deploy_to_github():
+    """Deploy generated files to a GitHub repository."""
     try:
         data = request.get_json()
         if not data or 'token' not in data or 'repo' not in data:
@@ -106,8 +142,6 @@ def deploy_to_github():
         if not files:
             return jsonify({'error': 'No generated files found'}), 400
 
-        import requests
-        import base64
         headers = {'Authorization': f'token {token}'}
         api_url = f'https://api.github.com/repos/{repo}/contents'
 
@@ -136,20 +170,21 @@ def deploy_to_github():
 
 @app.route('/api/deploy-hf', methods=['POST'])
 def deploy_to_huggingface():
+    """Deploy to Hugging Face Spaces (placeholder – extend as needed)."""
     try:
         data = request.get_json()
         if not data or 'token' not in data or 'space' not in data:
             return jsonify({'error': 'Missing token or space'}), 400
-        # Placeholder – implement real HF upload if needed
+        # In a real implementation, use huggingface_hub to upload files
         return jsonify({'success': True, 'message': 'Deployed to Hugging Face (placeholder)'})
     except Exception as e:
         app.logger.error(f"HF deploy error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-# ---------- NEW ROUTES ----------
-
+# ---------- New Routes ----------
 @app.route('/api/edit-selection', methods=['POST'])
 def edit_selection():
+    """Edit a selected code snippet using full project context."""
     try:
         data = request.get_json()
         if not data:
@@ -161,10 +196,17 @@ def edit_selection():
         all_files = data.get('all_files', {})
 
         if not instruction or not selected_code or not filename:
-            return jsonify({'error': 'Missing required fields'}), 400
+            return jsonify({'error': 'Missing required fields: instruction, selected_code, filename'}), 400
 
-        project_context = "\n".join([f"--- {name} ---\n{content}" for name, content in all_files.items()])
+        # Build a contextual summary of the entire project
+        project_context = "\n".join(
+            [f"--- {name} ---\n{content}" for name, content in all_files.items()]
+        )
+
         prompt_template = load_prompt('edit_selection.txt')
+        if not prompt_template:
+            return jsonify({'error': 'Prompt template not found'}), 500
+
         prompt = prompt_template.format(
             project_context=project_context,
             filename=filename,
@@ -173,17 +215,8 @@ def edit_selection():
             instruction=instruction
         )
 
-        if groq_client is None:
-            return jsonify({'error': 'Groq client not initialized.'}), 500
-
-        response = groq_client.chat.completions.create(
-            model="llama3-70b-8192",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=4096
-        )
-        replacement = response.choices[0].message.content.strip()
-        return jsonify({'replacement': replacement})
+        replacement = call_groq(prompt, model="llama3-70b-8192", temperature=0.3, max_tokens=4096)
+        return jsonify({'replacement': replacement.strip()})
 
     except Exception as e:
         app.logger.error(f"Edit selection error: {str(e)}")
@@ -191,21 +224,25 @@ def edit_selection():
 
 @app.route('/api/review', methods=['POST'])
 def review_code():
+    """Perform a basic sanity review on generated code files."""
     try:
         data = request.get_json()
         if not data:
             return jsonify({'error': 'Invalid JSON'}), 400
+
         files = data.get('files', {})
         if not files:
             return jsonify({'error': 'No files provided'}), 400
 
         issues = []
         for name, content in files.items():
-            if '.py' in name:
+            if name.endswith('.py'):
+                # Check for obvious missing imports or functions
                 if 'import' not in content and 'def ' not in content:
                     issues.append(f"{name}: No imports or functions found.")
                 if 'TODO' in content:
                     issues.append(f"{name}: Contains TODO comments.")
+                # Try to compile to catch syntax errors
                 try:
                     compile(content, name, 'exec')
                 except SyntaxError as e:
@@ -214,13 +251,17 @@ def review_code():
         if issues:
             return jsonify({'issues': issues, 'status': 'warning'})
         else:
-            return jsonify({'issues': [], 'status': 'success', 'message': 'No obvious issues found.'})
+            return jsonify({
+                'issues': [],
+                'status': 'success',
+                'message': 'No obvious issues found.'
+            })
 
     except Exception as e:
         app.logger.error(f"Review error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-# ---------- RUN ----------
+# ---------- Run the App ----------
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
