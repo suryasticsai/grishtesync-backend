@@ -431,7 +431,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (FIXED) ----------
+# ---------- Deploy to Hugging Face (FIXED - SDK ISSUE RESOLVED) ----------
 
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
