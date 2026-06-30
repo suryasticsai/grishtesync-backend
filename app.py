@@ -12,7 +12,9 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-key')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB
-CORS(app, origins=["http://localhost:5500", "http://127.0.0.1:5500", "https://suryasticsai.github.io"])
+
+# Allow CORS for both local dev and production frontend
+CORS(app, origins=["http://localhost:5500", "http://127.0.0.1:5500", "https://suryasticsai.github.io", "https://your-frontend-domain.com"])
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -96,21 +98,18 @@ def deploy_to_github():
         if not files:
             return jsonify({'error': 'No generated files found'}), 400
 
-        # Use PyGithub or direct API – simplified here
         import requests
+        import base64
         headers = {'Authorization': f'token {token}'}
         api_url = f'https://api.github.com/repos/{repo}/contents'
 
         for filepath, content in files.items():
-            # Encode content to base64
-            import base64
             encoded = base64.b64encode(content.encode()).decode()
             payload = {
                 'message': f'Add {filepath}',
                 'content': encoded,
                 'branch': 'main'
             }
-            # Check if file exists, need to get SHA for update
             get_url = f'{api_url}/{filepath}'
             resp = requests.get(get_url, headers=headers)
             if resp.status_code == 200:
@@ -135,7 +134,7 @@ def deploy_to_huggingface():
         if not data or 'token' not in data or 'space' not in data:
             return jsonify({'error': 'Missing token or space'}), 400
 
-        # Placeholder – implement HF API as needed
+        # Implement HF API if needed – placeholder
         return jsonify({'success': True, 'message': 'Deployed to Hugging Face'})
 
     except Exception as e:
@@ -160,7 +159,6 @@ def edit_selection():
         if not instruction or not selected_code or not filename:
             return jsonify({'error': 'Missing required fields: instruction, selected_code, filename'}), 400
 
-        # Build project context
         project_context = "\n".join([f"--- {name} ---\n{content}" for name, content in all_files.items()])
 
         prompt_template = load_prompt('edit_selection.txt')
@@ -221,4 +219,6 @@ def review_code():
 
 # --------------------- Run ---------------------
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Use the port provided by Render, default to 5000 for local
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
