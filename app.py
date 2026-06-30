@@ -1,4 +1,3 @@
-# GrishteSync v0.4 – Full Backend with AI Generation, GitHub OAuth, HF Deploy, and New Editor Features
 import os
 import re
 import json
@@ -70,7 +69,7 @@ def sanitize_space_name(name):
     name = name.strip('-')
     return name[:96] or "grishte-app"
 
-# ---------- GitHub OAuth ----------
+# ---------- GitHub OAuth Routes ----------
 
 @app.route("/auth/login")
 def github_login():
@@ -280,7 +279,6 @@ def generate():
 def deploy():
     start_time = time.time()
     auth_header = request.headers.get("Authorization", "")
-    # Support both Bearer and token
     if auth_header.startswith("Bearer "):
         user_token = auth_header.split(" ", 1)[1]
     elif auth_header.startswith("token "):
@@ -369,7 +367,6 @@ def deploy():
             encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
             api_path = f"{GITHUB_API_URL}/repos/{username}/{repo_name}/contents/{filepath}"
             payload = {"message": f"Update {filepath} via GrishteSync v{version}", "content": encoded, "branch": branch_name}
-            # Check if file exists on this branch to get its SHA
             file_check = requests.get(f"{api_path}?ref={branch_name}", headers=gh_headers, timeout=10)
             if file_check.status_code == 200:
                 fdata, _ = safe_json(file_check)
@@ -407,7 +404,7 @@ def deploy():
         "deploy_time": round(time.time() - start_time, 1)
     })
 
-# ---------- Deploy to Hugging Face (using huggingface_hub) ----------
+# ---------- Deploy to Hugging Face ----------
 
 @app.route("/api/deploy-hf", methods=["POST"])
 def deploy_hf():
@@ -492,25 +489,24 @@ def deploy_hf():
             "trace": traceback.format_exc()
         }), 500
 
-# ==============================================
-# 🆕 NEW FEATURES: Inline Editor & Code Review
-# ==============================================
+# ---------- Health check ----------
 
-# ---------- Helper to load prompts ----------
+@app.route("/")
+def health():
+    return jsonify({"status": "GrishteSync backend running", "version": "0.4"})
+
+# ---------- NEW ROUTES FOR INLINE EDITING ----------
+
 def load_prompt(filename):
-    """Load a prompt template from the prompts/ folder."""
     prompt_path = os.path.join('prompts', filename)
     try:
         with open(prompt_path, 'r') as f:
             return f.read()
     except FileNotFoundError:
-        app.logger.error(f"Prompt file not found: {prompt_path}")
         return ""
 
-# ---------- Inline Code Editing ----------
 @app.route("/api/edit-selection", methods=["POST"])
 def edit_selection():
-    """Edit a selected code snippet using full project context."""
     try:
         data = request.get_json()
         if not data:
@@ -522,9 +518,8 @@ def edit_selection():
         all_files = data.get('all_files', {})
 
         if not instruction or not selected_code or not filename:
-            return jsonify({'error': 'Missing required fields: instruction, selected_code, filename'}), 400
+            return jsonify({'error': 'Missing required fields'}), 400
 
-        # Build a contextual summary of the entire project
         project_context = "\n".join(
             [f"--- {name} ---\n{content}" for name, content in all_files.items()]
         )
@@ -541,7 +536,6 @@ def edit_selection():
             instruction=instruction
         )
 
-        # Use the existing Groq call logic
         messages = [
             {"role": "system", "content": "You are an expert software engineer. Output ONLY the replacement code, no explanations."},
             {"role": "user", "content": prompt}
@@ -561,10 +555,8 @@ def edit_selection():
         app.logger.error(f"Edit selection error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-# ---------- Code Review ----------
 @app.route("/api/review", methods=["POST"])
 def review_code():
-    """Perform a basic sanity review on generated code files."""
     try:
         data = request.get_json()
         if not data:
@@ -577,12 +569,10 @@ def review_code():
         issues = []
         for name, content in files.items():
             if name.endswith('.py'):
-                # Check for obvious missing imports or functions
                 if 'import' not in content and 'def ' not in content:
                     issues.append(f"{name}: No imports or functions found.")
                 if 'TODO' in content:
                     issues.append(f"{name}: Contains TODO comments.")
-                # Try to compile to catch syntax errors
                 try:
                     compile(content, name, 'exec')
                 except SyntaxError as e:
@@ -600,11 +590,6 @@ def review_code():
     except Exception as e:
         app.logger.error(f"Review error: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
-# ---------- Health check ----------
-@app.route("/")
-def health():
-    return jsonify({"status": "GrishteSync backend running", "version": "0.4"})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
