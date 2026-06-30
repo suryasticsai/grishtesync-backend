@@ -11,21 +11,32 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-key')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 CORS(app, origins=["http://localhost:5500", "http://127.0.0.1:5500", "https://suryasticsai.github.io"])
 
-# Logging
 logging.basicConfig(level=logging.INFO)
 
-# Groq client
-groq_client = Groq(api_key=os.getenv('GROQ_API_KEY'))
+# Groq client – if this fails, the app will log the error and still start
+try:
+    groq_client = Groq(api_key=os.getenv('GROQ_API_KEY'))
+except Exception as e:
+    logging.error(f"Failed to initialize Groq: {e}")
+    groq_client = None
 
-# Helper to load prompts
 def load_prompt(filename):
     with open(os.path.join('prompts', filename), 'r') as f:
         return f.read()
 
-# -------------------- Existing Routes --------------------
+# ---------- HEALTH CHECK (CRITICAL FOR RENDER) ----------
+@app.route('/')
+def health_check():
+    return jsonify({"status": "ok", "service": "GrishteSync Backend"}), 200
+
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy"}), 200
+
+# ---------- API ROUTES ----------
 
 @app.route('/api/generate', methods=['POST'])
 def generate_code():
@@ -40,13 +51,16 @@ def generate_code():
         if not description:
             return jsonify({'error': 'Description cannot be empty'}), 400
 
-        # Choose prompt
+        # Select prompt
         if project_type == 'fullstack':
             prompt_template = load_prompt('fullstack_generate.txt')
         else:
             prompt_template = load_prompt('generate.txt')  # your existing generic prompt
 
         prompt = prompt_template.format(description=description)
+
+        if groq_client is None:
+            return jsonify({'error': 'Groq client not initialized. Check API key.'}), 500
 
         response = groq_client.chat.completions.create(
             model="llama3-70b-8192",
@@ -122,18 +136,17 @@ def deploy_to_github():
 
 @app.route('/api/deploy-hf', methods=['POST'])
 def deploy_to_huggingface():
-    # Placeholder – implement HF API as needed
     try:
         data = request.get_json()
         if not data or 'token' not in data or 'space' not in data:
             return jsonify({'error': 'Missing token or space'}), 400
-        # Here you would use the huggingface_hub to upload files
+        # Placeholder – implement real HF upload if needed
         return jsonify({'success': True, 'message': 'Deployed to Hugging Face (placeholder)'})
     except Exception as e:
         app.logger.error(f"HF deploy error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-# -------------------- New Routes --------------------
+# ---------- NEW ROUTES ----------
 
 @app.route('/api/edit-selection', methods=['POST'])
 def edit_selection():
@@ -159,6 +172,9 @@ def edit_selection():
             selected_code=selected_code,
             instruction=instruction
         )
+
+        if groq_client is None:
+            return jsonify({'error': 'Groq client not initialized.'}), 500
 
         response = groq_client.chat.completions.create(
             model="llama3-70b-8192",
@@ -204,7 +220,7 @@ def review_code():
         app.logger.error(f"Review error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-# -------------------- Run --------------------
+# ---------- RUN ----------
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
