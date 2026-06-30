@@ -12,27 +12,23 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-key')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB
+CORS(app, origins=["http://localhost:5500", "http://127.0.0.1:5500", "https://suryasticsai.github.io"])
 
-# Allow CORS for both local dev and production frontend
-CORS(app, origins=["http://localhost:5500", "http://127.0.0.1:5500", "https://suryasticsai.github.io", "https://your-frontend-domain.com"])
-
-# Configure logging
+# Logging
 logging.basicConfig(level=logging.INFO)
 
 # Groq client
 groq_client = Groq(api_key=os.getenv('GROQ_API_KEY'))
 
-# Helper to load prompt files
+# Helper to load prompts
 def load_prompt(filename):
-    prompt_path = os.path.join('prompts', filename)
-    with open(prompt_path, 'r') as f:
+    with open(os.path.join('prompts', filename), 'r') as f:
         return f.read()
 
-# --------------------- Existing Routes ---------------------
+# -------------------- Existing Routes --------------------
 
 @app.route('/api/generate', methods=['POST'])
 def generate_code():
-    """Generate code based on description and project type."""
     try:
         data = request.get_json()
         if not data or 'description' not in data:
@@ -44,7 +40,7 @@ def generate_code():
         if not description:
             return jsonify({'error': 'Description cannot be empty'}), 400
 
-        # Select prompt
+        # Choose prompt
         if project_type == 'fullstack':
             prompt_template = load_prompt('fullstack_generate.txt')
         else:
@@ -60,13 +56,12 @@ def generate_code():
         )
         result_text = response.choices[0].message.content
 
-        # Parse JSON from result
+        # Parse JSON
         try:
             result_json = json.loads(result_text)
             files = result_json.get('files', {})
             readme = result_json.get('readme', '')
         except json.JSONDecodeError:
-            # Try to extract from markdown code block
             match = re.search(r'```json\s*(\{.*?\})\s*```', result_text, re.DOTALL)
             if match:
                 result_json = json.loads(match.group(1))
@@ -86,7 +81,6 @@ def generate_code():
 
 @app.route('/api/deploy-github', methods=['POST'])
 def deploy_to_github():
-    """Deploy generated files to GitHub repository."""
     try:
         data = request.get_json()
         if not data or 'token' not in data or 'repo' not in data:
@@ -128,24 +122,21 @@ def deploy_to_github():
 
 @app.route('/api/deploy-hf', methods=['POST'])
 def deploy_to_huggingface():
-    """Deploy to Hugging Face Spaces (simplified)."""
+    # Placeholder – implement HF API as needed
     try:
         data = request.get_json()
         if not data or 'token' not in data or 'space' not in data:
             return jsonify({'error': 'Missing token or space'}), 400
-
-        # Implement HF API if needed – placeholder
-        return jsonify({'success': True, 'message': 'Deployed to Hugging Face'})
-
+        # Here you would use the huggingface_hub to upload files
+        return jsonify({'success': True, 'message': 'Deployed to Hugging Face (placeholder)'})
     except Exception as e:
         app.logger.error(f"HF deploy error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-# --------------------- New Routes ---------------------
+# -------------------- New Routes --------------------
 
 @app.route('/api/edit-selection', methods=['POST'])
 def edit_selection():
-    """Edit a selected code snippet with full project context."""
     try:
         data = request.get_json()
         if not data:
@@ -157,10 +148,9 @@ def edit_selection():
         all_files = data.get('all_files', {})
 
         if not instruction or not selected_code or not filename:
-            return jsonify({'error': 'Missing required fields: instruction, selected_code, filename'}), 400
+            return jsonify({'error': 'Missing required fields'}), 400
 
         project_context = "\n".join([f"--- {name} ---\n{content}" for name, content in all_files.items()])
-
         prompt_template = load_prompt('edit_selection.txt')
         prompt = prompt_template.format(
             project_context=project_context,
@@ -177,7 +167,6 @@ def edit_selection():
             max_tokens=4096
         )
         replacement = response.choices[0].message.content.strip()
-
         return jsonify({'replacement': replacement})
 
     except Exception as e:
@@ -186,12 +175,10 @@ def edit_selection():
 
 @app.route('/api/review', methods=['POST'])
 def review_code():
-    """Review the generated code for issues."""
     try:
         data = request.get_json()
         if not data:
             return jsonify({'error': 'Invalid JSON'}), 400
-
         files = data.get('files', {})
         if not files:
             return jsonify({'error': 'No files provided'}), 400
@@ -217,8 +204,7 @@ def review_code():
         app.logger.error(f"Review error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-# --------------------- Run ---------------------
+# -------------------- Run --------------------
 if __name__ == '__main__':
-    # Use the port provided by Render, default to 5000 for local
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
