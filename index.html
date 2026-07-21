@@ -199,6 +199,16 @@
                 opacity: 0.5;
             }
         }
+        .token-display {
+            font-family: monospace;
+            font-size: 0.75rem;
+            color: #58a6ff;
+            background: #0d1117;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            border: 1px solid #21262d;
+            word-break: break-all;
+        }
     </style>
 </head>
 <body>
@@ -209,7 +219,7 @@
     </div>
 
     <!-- ============================================================ -->
-    <!-- CARD: Status & OAuth                                           -->
+    <!-- CARD: Authentication                                          -->
     <!-- ============================================================ -->
     <div class="card">
         <h2>
@@ -222,6 +232,26 @@
             <span style="font-size:0.85rem;color:#8b949e;margin-left:0.5rem;" id="userDisplay"></span>
         </div>
         <div class="log" id="authLog">→ Call <code>captureAuthTokenFromUrl()</code> on page load.</div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- CARD: Manual Token Input (for demo when OAuth redirects elsewhere) -->
+    <!-- ============================================================ -->
+    <div class="card">
+        <h2>🔑 Manual Token Entry <span class="badge">optional</span></h2>
+        <p style="font-size:0.85rem;color:#8b949e;margin-bottom:0.75rem;">
+            If the "Login" button redirects to your main app, log in there and copy the <code>?token=</code> from the URL, then paste it here.
+        </p>
+        <div class="flex">
+            <input id="manualTokenInput" type="text" placeholder="Paste your GitHub token here..." style="flex:1;" />
+            <button id="manualTokenBtn" class="primary">Set Token</button>
+            <button id="clearTokenBtn" class="danger">Clear</button>
+        </div>
+        <div class="log" id="manualTokenLog">💡 No token set.</div>
+        <div id="tokenPreview" style="margin-top:0.5rem;display:none;">
+            <span style="font-size:0.75rem;color:#8b949e;">Current token:</span>
+            <span class="token-display" id="tokenDisplay"></span>
+        </div>
     </div>
 
     <!-- ============================================================ -->
@@ -342,6 +372,14 @@
         const loginBtn = $('loginBtn');
         const logoutBtn = $('logoutBtn');
 
+        // Manual token elements
+        const manualTokenInput = $('manualTokenInput');
+        const manualTokenBtn = $('manualTokenBtn');
+        const clearTokenBtn = $('clearTokenBtn');
+        const manualTokenLog = $('manualTokenLog');
+        const tokenPreview = $('tokenPreview');
+        const tokenDisplay = $('tokenDisplay');
+
         // --------------------------------------------------------------
         // 3. EVENT BUS — show loading states automatically
         // --------------------------------------------------------------
@@ -392,6 +430,18 @@
         // --------------------------------------------------------------
         // 4. AUTH — capture token from URL on load
         // --------------------------------------------------------------
+        function updateManualTokenStatus() {
+            const token = getAuthToken();
+            if (token) {
+                manualTokenLog.innerHTML = `<span class="ok">✅ Token is set (starts with ${token.substring(0, 8)}...)</span>`;
+                tokenPreview.style.display = 'block';
+                tokenDisplay.textContent = token.substring(0, 20) + '...';
+            } else {
+                manualTokenLog.innerHTML = '💡 No token set.';
+                tokenPreview.style.display = 'none';
+            }
+        }
+
         function updateAuthUI() {
             const token = getAuthToken();
             if (token) {
@@ -407,6 +457,7 @@
                 authLog.innerHTML = '→ Call <code>captureAuthTokenFromUrl()</code> on page load.';
                 deployLog.innerHTML = '🔑 Requires a valid GitHub token (login first).';
             }
+            updateManualTokenStatus();
         }
 
         // Run this once on page load
@@ -429,7 +480,33 @@
         });
 
         // --------------------------------------------------------------
-        // 5. HEALTH CHECK
+        // 5. MANUAL TOKEN INPUT
+        // --------------------------------------------------------------
+        manualTokenBtn.addEventListener('click', () => {
+            const token = manualTokenInput.value.trim();
+            if (!token) {
+                manualTokenLog.innerHTML = '<span class="err">❌ Please paste a valid token.</span>';
+                return;
+            }
+            setAuthToken(token);
+            manualTokenLog.innerHTML = `<span class="ok">✅ Token set successfully!</span>`;
+            manualTokenInput.value = '';
+            updateAuthUI();
+        });
+
+        clearTokenBtn.addEventListener('click', () => {
+            clearAuthToken();
+            manualTokenLog.innerHTML = '<span class="err">🔴 Token cleared.</span>';
+            updateAuthUI();
+        });
+
+        // Allow pressing Enter in the token input
+        manualTokenInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') manualTokenBtn.click();
+        });
+
+        // --------------------------------------------------------------
+        // 6. HEALTH CHECK
         // --------------------------------------------------------------
         healthBtn.addEventListener('click', async () => {
             try {
@@ -443,7 +520,7 @@
         });
 
         // --------------------------------------------------------------
-        // 6. GENERATE CODE
+        // 7. GENERATE CODE
         // --------------------------------------------------------------
         genBtn.addEventListener('click', async () => {
             const prompt = genPrompt.value.trim();
@@ -467,7 +544,7 @@
         });
 
         // --------------------------------------------------------------
-        // 7. CODE REVIEW
+        // 8. CODE REVIEW
         // --------------------------------------------------------------
         reviewBtn.addEventListener('click', async () => {
             const code = reviewInput.value;
@@ -494,13 +571,13 @@
         });
 
         // --------------------------------------------------------------
-        // 8. DEPLOY TO GITHUB (requires auth)
+        // 9. DEPLOY TO GITHUB (requires auth)
         // --------------------------------------------------------------
         deployBtn.addEventListener('click', async () => {
             const token = getAuthToken();
             if (!token) {
                 deployOutput.textContent = '❌ Error: Please login with GitHub first.';
-                deployLog.innerHTML = '<span class="err">❌ Missing GitHub token. Click "Login with GitHub".</span>';
+                deployLog.innerHTML = '<span class="err">❌ Missing GitHub token. Click "Login with GitHub" or paste a token manually.</span>';
                 return;
             }
 
@@ -531,7 +608,7 @@
         });
 
         // --------------------------------------------------------------
-        // 9. EXTRA: Keyboard shortcut (Enter to generate)
+        // 10. EXTRA: Keyboard shortcut (Enter to generate)
         // --------------------------------------------------------------
         genPrompt.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') genBtn.click();
