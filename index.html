@@ -231,16 +231,16 @@
             <button id="logoutBtn" class="danger">🚪 Logout</button>
             <span style="font-size:0.85rem;color:#8b949e;margin-left:0.5rem;" id="userDisplay"></span>
         </div>
-        <div class="log" id="authLog">→ Call <code>captureAuthTokenFromUrl()</code> on page load.</div>
+        <div class="log" id="authLog">→ Log in to the main app first to share the token automatically.</div>
     </div>
 
     <!-- ============================================================ -->
-    <!-- CARD: Manual Token Input (for demo when OAuth redirects elsewhere) -->
+    <!-- CARD: Manual Token Input (fallback)                          -->
     <!-- ============================================================ -->
     <div class="card">
-        <h2>🔑 Manual Token Entry <span class="badge">optional</span></h2>
+        <h2>🔑 Manual Token Entry <span class="badge">fallback</span></h2>
         <p style="font-size:0.85rem;color:#8b949e;margin-bottom:0.75rem;">
-            If the "Login" button redirects to your main app, log in there and copy the <code>?token=</code> from the URL, then paste it here.
+            If you haven't logged into the main app, paste your token here.
         </p>
         <div class="flex">
             <input id="manualTokenInput" type="text" placeholder="Paste your GitHub token here..." style="flex:1;" />
@@ -316,7 +316,7 @@
             </div>
         </div>
         <pre id="deployOutput">// Deployment result ...</pre>
-        <div class="log" id="deployLog">🔑 Requires a valid GitHub token (login first).</div>
+        <div class="log" id="deployLog">🔑 Token will be auto‑picked from localStorage if you logged into the main app.</div>
     </div>
 
     <!-- ============================================================ -->
@@ -428,7 +428,7 @@
         });
 
         // --------------------------------------------------------------
-        // 4. AUTH — capture token from URL on load
+        // 4. AUTH — capture token from URL OR localStorage
         // --------------------------------------------------------------
         function updateManualTokenStatus() {
             const token = getAuthToken();
@@ -454,20 +454,26 @@
                 authStatus.textContent = 'Not logged in';
                 authStatus.className = 'status-badge idle';
                 userDisplay.textContent = '';
-                authLog.innerHTML = '→ Call <code>captureAuthTokenFromUrl()</code> on page load.';
-                deployLog.innerHTML = '🔑 Requires a valid GitHub token (login first).';
+                authLog.innerHTML = '→ Log in to the main app first to share the token automatically.';
+                deployLog.innerHTML = '🔑 Token will be auto‑picked from localStorage if you logged into the main app.';
             }
             updateManualTokenStatus();
         }
 
-        // Run this once on page load
-        const capturedToken = captureAuthTokenFromUrl(); // auto-stores if found
+        // On page load: first try URL (if OAuth redirected directly here)
+        let capturedToken = captureAuthTokenFromUrl();
         if (capturedToken) {
             authLog.innerHTML = `<span class="ok">✅ Captured token from URL and stored it!</span>`;
+        } else {
+            // No token in URL — check if we already have one in localStorage
+            const existingToken = getAuthToken();
+            if (existingToken) {
+                authLog.innerHTML = `<span class="ok">✅ Found existing token in localStorage (from main app).</span>`;
+            }
         }
         updateAuthUI();
 
-        // Login button
+        // Login button — redirects to the OAuth flow (which goes to the main app)
         loginBtn.addEventListener('click', () => {
             window.location.href = getGitHubLoginUrl();
         });
@@ -480,7 +486,7 @@
         });
 
         // --------------------------------------------------------------
-        // 5. MANUAL TOKEN INPUT
+        // 5. MANUAL TOKEN INPUT (fallback)
         // --------------------------------------------------------------
         manualTokenBtn.addEventListener('click', () => {
             const token = manualTokenInput.value.trim();
@@ -500,7 +506,6 @@
             updateAuthUI();
         });
 
-        // Allow pressing Enter in the token input
         manualTokenInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') manualTokenBtn.click();
         });
@@ -532,7 +537,6 @@
             genLog.innerHTML = '⏳ Calling /api/generate ...';
 
             try {
-                // No token needed for basic generation!
                 const result = await generateCode(prompt);
                 genOutput.textContent = JSON.stringify(result, null, 2);
                 const fileCount = Object.keys(result.files || {}).length;
@@ -576,8 +580,8 @@
         deployBtn.addEventListener('click', async () => {
             const token = getAuthToken();
             if (!token) {
-                deployOutput.textContent = '❌ Error: Please login with GitHub first.';
-                deployLog.innerHTML = '<span class="err">❌ Missing GitHub token. Click "Login with GitHub" or paste a token manually.</span>';
+                deployOutput.textContent = '❌ Error: No token found. Please log into the main app first.';
+                deployLog.innerHTML = '<span class="err">❌ Missing GitHub token. Log in on the main app, or paste a token manually.</span>';
                 return;
             }
 
