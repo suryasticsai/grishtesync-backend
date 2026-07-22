@@ -4,10 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GrishteSync · Prompt2Prod</title>
-    <!-- Favicon -->
     <link rel="icon" type="image/png" href="https://i.ibb.co/RGmb4FKk/1781072041102.png" />
-    <!-- Pyodide CDN -->
+    <!-- Pyodide CDN (for running Python) -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js"></script>
+    <!-- CodeMirror (IDE-style editor) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <style>
@@ -38,7 +41,6 @@
             --card-bg: rgba(12, 12, 35, 0.5);
         }
 
-        /* ---- Day theme (bright, readable) ---- */
         body.day-mode {
             --bg-primary: #e8f0fa;
             --bg-secondary: #d0dce8;
@@ -59,7 +61,7 @@
         body {
             background: var(--bg-primary);
             color: var(--text-primary);
-            font-family: 'Inter', -apple-system, sans-serif;
+            font-family: 'Inter', sans-serif;
             min-height: 100vh;
             padding: 2rem 1.5rem;
             display: flex;
@@ -67,12 +69,9 @@
             align-items: flex-start;
             transition: var(--transition);
             position: relative;
-            background-image:
-                radial-gradient(circle at 20% 30%, rgba(0, 212, 255, 0.04) 0%, transparent 50%),
-                radial-gradient(circle at 80% 70%, rgba(167, 139, 250, 0.04) 0%, transparent 50%);
         }
 
-        /* ---- Animated stars (dark mode) ---- */
+        /* ---- Stars (dark) ---- */
         body::before {
             content: '';
             position: fixed;
@@ -95,7 +94,7 @@
             opacity: 0;
         }
 
-        /* ---- Clouds & Sun (day mode) ---- */
+        /* ---- Weather (clouds + sun) ---- */
         .weather {
             position: fixed;
             inset: 0;
@@ -139,15 +138,10 @@
             animation-delay: -12s;
         }
         @keyframes float-cloud {
-            0% {
-                transform: translateX(-150px);
-            }
-            100% {
-                transform: translateX(calc(100vw + 200px));
-            }
+            0% { transform: translateX(-150px); }
+            100% { transform: translateX(calc(100vw + 200px)); }
         }
 
-        /* Sun */
         .sun {
             position: absolute;
             top: 5%;
@@ -160,15 +154,8 @@
             animation: pulse-sun 4s ease-in-out infinite;
         }
         @keyframes pulse-sun {
-            0%,
-            100% {
-                transform: scale(1);
-                box-shadow: 0 0 80px #ffaa00, 0 0 150px #ff880066;
-            }
-            50% {
-                transform: scale(1.08);
-                box-shadow: 0 0 100px #ffaa00, 0 0 200px #ff880088;
-            }
+            0%, 100% { transform: scale(1); box-shadow: 0 0 80px #ffaa00, 0 0 150px #ff880066; }
+            50% { transform: scale(1.08); box-shadow: 0 0 100px #ffaa00, 0 0 200px #ff880088; }
         }
 
         /* ---- Main container ---- */
@@ -177,7 +164,6 @@
             width: 100%;
             background: var(--bg-card);
             backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
             border-radius: 40px;
             padding: 2.5rem 2.5rem 1.5rem;
             border: var(--border-neon);
@@ -187,7 +173,6 @@
             transition: var(--transition);
             overflow: hidden;
         }
-
         .app-container::before {
             content: '';
             position: absolute;
@@ -200,13 +185,11 @@
             pointer-events: none;
         }
         @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
+            to { transform: rotate(360deg); }
         }
 
         /* ================================================================
-               HEADER – Centered Logo + Brand
+               HEADER
             ================================================================ */
         .header {
             display: flex;
@@ -217,17 +200,13 @@
             position: relative;
             z-index: 2;
         }
-
         .logo-wrapper {
             position: relative;
             cursor: pointer;
             margin-bottom: 0.5rem;
             transition: transform 0.6s ease;
         }
-        .logo-wrapper:hover {
-            transform: scale(1.02);
-        }
-
+        .logo-wrapper:hover { transform: scale(1.02); }
         .logo-wrapper::after {
             content: '';
             position: absolute;
@@ -241,11 +220,8 @@
             animation: spin-glow 6s linear infinite;
         }
         @keyframes spin-glow {
-            to {
-                transform: rotate(360deg);
-            }
+            to { transform: rotate(360deg); }
         }
-
         .logo {
             width: 96px;
             height: 96px;
@@ -273,7 +249,6 @@
             box-shadow: 0 0 60px rgba(0, 212, 255, 0.4);
         }
 
-        /* Glitchy text effect */
         .brand h1 {
             font-family: 'Orbitron', sans-serif;
             font-size: 2.4rem;
@@ -285,7 +260,6 @@
             -webkit-text-fill-color: transparent;
             text-shadow: 0 0 40px rgba(0, 212, 255, 0.15);
             line-height: 1.2;
-            position: relative;
             display: inline-block;
             transition: all 0.2s;
         }
@@ -293,31 +267,13 @@
             animation: glitch 0.3s ease-in-out 3;
         }
         @keyframes glitch {
-            0% {
-                transform: translate(0, 0);
-            }
-            20% {
-                transform: translate(-2px, 1px);
-                text-shadow: 2px 0 var(--neon-pink), -2px 0 var(--neon-cyan);
-            }
-            40% {
-                transform: translate(2px, -1px);
-                text-shadow: -3px 0 var(--neon-cyan), 3px 0 var(--neon-pink);
-            }
-            60% {
-                transform: translate(-1px, 2px);
-                text-shadow: 1px 0 var(--neon-purple), -1px 0 var(--neon-orange);
-            }
-            80% {
-                transform: translate(1px, -2px);
-                text-shadow: -2px 0 var(--neon-orange), 2px 0 var(--neon-purple);
-            }
-            100% {
-                transform: translate(0, 0);
-                text-shadow: none;
-            }
+            0% { transform: translate(0, 0); }
+            20% { transform: translate(-2px, 1px); text-shadow: 2px 0 var(--neon-pink), -2px 0 var(--neon-cyan); }
+            40% { transform: translate(2px, -1px); text-shadow: -3px 0 var(--neon-cyan), 3px 0 var(--neon-pink); }
+            60% { transform: translate(-1px, 2px); text-shadow: 1px 0 var(--neon-purple), -1px 0 var(--neon-orange); }
+            80% { transform: translate(1px, -2px); text-shadow: -2px 0 var(--neon-orange), 2px 0 var(--neon-purple); }
+            100% { transform: translate(0, 0); text-shadow: none; }
         }
-
         .brand .tagline {
             font-family: 'Orbitron', sans-serif;
             font-size: 1rem;
@@ -333,20 +289,31 @@
         }
 
         /* ================================================================
-               CARDS – Glassmorphism with improved day mode
+               CARDS
             ================================================================ */
         .card {
             background: var(--card-bg);
             backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
             border-radius: 28px;
             padding: 1.75rem;
             margin-bottom: 1.75rem;
             border: 1px solid rgba(0, 212, 255, 0.08);
             box-shadow: var(--shadow-card);
-            transition: border-color 0.3s, box-shadow 0.3s;
+            transition: border-color 0.3s, box-shadow 0.3s, max-height 0.5s ease;
             position: relative;
             z-index: 2;
+            overflow: hidden;
+            max-height: 2000px;
+        }
+        .card.collapsed {
+            max-height: 0 !important;
+            padding: 0 1.75rem;
+            margin: 0;
+            border: none;
+            overflow: hidden;
+            opacity: 0;
+            pointer-events: none;
+            transition: max-height 0.5s ease, padding 0.3s ease, margin 0.3s ease, opacity 0.3s ease;
         }
         .card:hover {
             border-color: rgba(0, 212, 255, 0.2);
@@ -358,7 +325,6 @@
         }
         body.day-mode .card:hover {
             border-color: rgba(0, 102, 170, 0.25);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
         }
 
         .card h2 {
@@ -372,9 +338,16 @@
             align-items: center;
             gap: 0.75rem;
             text-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+            cursor: pointer;
+            user-select: none;
         }
-        body.day-mode .card h2 {
-            text-shadow: none;
+        .card h2 .toggle-icon {
+            transition: transform 0.3s;
+            font-size: 0.8rem;
+            margin-left: auto;
+        }
+        .card h2 .toggle-icon.collapsed {
+            transform: rotate(-90deg);
         }
 
         /* ---- Prompt area ---- */
@@ -476,7 +449,6 @@
             background: linear-gradient(135deg, rgba(0, 102, 170, 0.25), rgba(109, 79, 201, 0.25));
         }
 
-        /* Suggestions */
         .suggestions {
             display: flex;
             flex-wrap: wrap;
@@ -493,7 +465,6 @@
             cursor: pointer;
             transition: all 0.2s;
             font-family: 'Inter', sans-serif;
-            backdrop-filter: blur(2px);
         }
         .suggestion-chip:hover {
             background: rgba(0, 212, 255, 0.12);
@@ -510,72 +481,32 @@
             color: var(--text-primary);
         }
 
-        /* ---- Code panel ---- */
+        .log {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 0.75rem;
+        }
+
+        /* ---- Code & Output Panel ---- */
         .code-panel {
-            margin-top: 1.5rem;
-            border-top: 1px solid rgba(0, 212, 255, 0.08);
-            padding-top: 1.2rem;
             display: none;
         }
         .code-panel.visible {
             display: block;
         }
-        .code-panel .panel-header {
+
+        .editor-toolbar {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            cursor: pointer;
-            padding: 0.5rem 0;
-        }
-        .code-panel .panel-header h3 {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: var(--neon-cyan);
-            letter-spacing: 1px;
-            display: flex;
-            align-items: center;
+            flex-wrap: wrap;
             gap: 0.5rem;
+            margin-bottom: 0.75rem;
         }
-        .code-panel .panel-header .toggle-icon {
-            transition: transform 0.3s;
-        }
-        .code-panel .panel-header .toggle-icon.collapsed {
-            transform: rotate(-90deg);
-        }
-
-        .code-editor {
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 20px;
-            border: 1px solid rgba(0, 212, 255, 0.06);
-            overflow: hidden;
-            margin-top: 0.75rem;
-            transition: max-height 0.4s ease, opacity 0.4s ease, padding 0.4s ease;
-            max-height: 600px;
-            opacity: 1;
-            padding: 0;
-        }
-        body.day-mode .code-editor {
-            background: rgba(255, 255, 255, 0.3);
-        }
-        .code-editor.collapsed {
-            max-height: 0 !important;
-            opacity: 0;
-            padding: 0;
-            margin: 0;
-            border: none;
-        }
-
         .file-tabs {
             display: flex;
             gap: 0.4rem;
             flex-wrap: wrap;
-            padding: 0.8rem 1rem 0.4rem;
-            background: rgba(0, 0, 0, 0.2);
-            border-bottom: 1px solid rgba(0, 212, 255, 0.06);
-        }
-        body.day-mode .file-tabs {
-            background: rgba(255, 255, 255, 0.2);
         }
         .file-tab {
             padding: 0.25rem 1rem;
@@ -603,39 +534,57 @@
             border-color: rgba(0, 212, 255, 0.2);
         }
 
-        .editor-container {
-            padding: 0.8rem;
-        }
-        .editor-container textarea {
-            width: 100%;
-            min-height: 200px;
-            background: rgba(0, 0, 0, 0.2);
+        .editor-wrapper {
+            position: relative;
+            border-radius: 20px;
+            overflow: hidden;
             border: 1px solid rgba(0, 212, 255, 0.06);
-            border-radius: 16px;
-            color: var(--text-primary);
+        }
+        .CodeMirror {
+            height: auto;
+            min-height: 250px;
+            background: rgba(0, 0, 0, 0.3);
+            font-size: 14px;
             font-family: 'Courier New', monospace;
-            font-size: 0.85rem;
-            padding: 1rem;
-            resize: vertical;
-            transition: border-color 0.3s;
-            line-height: 1.6;
+            padding: 0.5rem 0;
         }
-        body.day-mode .editor-container textarea {
-            background: rgba(255, 255, 255, 0.5);
-            color: #1a2332;
-            border-color: rgba(0, 102, 170, 0.1);
-        }
-        .editor-container textarea:focus {
-            outline: none;
-            border-color: var(--neon-cyan);
-            box-shadow: 0 0 20px rgba(0, 212, 255, 0.05);
+        body.day-mode .CodeMirror {
+            background: rgba(255, 255, 255, 0.3);
         }
 
-        .code-actions {
+        .output-panel {
+            margin-top: 1rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 20px;
+            border: 1px solid rgba(0, 212, 255, 0.06);
+            padding: 1rem;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            color: var(--text-secondary);
+            display: none;
+        }
+        .output-panel.visible {
+            display: block;
+        }
+        .output-panel .stdout {
+            color: var(--neon-green);
+        }
+        .output-panel .stderr {
+            color: #f85149;
+        }
+        .output-panel .no-output {
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        .action-bar {
             display: flex;
             gap: 0.75rem;
             flex-wrap: wrap;
-            margin-top: 0.75rem;
+            margin-top: 1rem;
             align-items: center;
         }
 
@@ -683,64 +632,35 @@
         .btn-3d.secondary:active {
             box-shadow: 0 2px 0 #3f2b7a, 0 8px 20px rgba(109, 79, 201, 0.2);
         }
-        /* Day mode button adjustments */
         body.day-mode .btn-3d {
             color: #fff;
         }
 
-        /* ---- Deploy progress (output panel) ---- */
-        .deploy-progress {
-            display: none;
-            margin-top: 1rem;
-            padding: 1.2rem;
+        /* ---- Progress Bar ---- */
+        .progress-container {
+            width: 100%;
             background: rgba(0, 0, 0, 0.3);
-            border-radius: 20px;
-            border-left: 4px solid var(--neon-cyan);
-            backdrop-filter: blur(4px);
+            border-radius: 40px;
+            height: 8px;
+            margin-top: 1rem;
+            overflow: hidden;
+            display: none;
         }
-        body.day-mode .deploy-progress {
-            background: rgba(255, 255, 255, 0.5);
-        }
-        .deploy-progress.visible {
+        .progress-container.visible {
             display: block;
         }
-        .deploy-progress p {
-            margin: 0.3rem 0;
-            font-size: 0.9rem;
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--neon-cyan), var(--neon-purple));
+            border-radius: 40px;
+            transition: width 0.4s ease;
+        }
+        .progress-label {
+            font-size: 0.75rem;
             color: var(--text-secondary);
-            opacity: 0;
-            animation: fade-in-up 0.5s forwards;
-        }
-        .deploy-progress p:nth-child(1) {
-            animation-delay: 0.2s;
-        }
-        .deploy-progress p:nth-child(2) {
-            animation-delay: 0.7s;
-        }
-        .deploy-progress p:nth-child(3) {
-            animation-delay: 1.2s;
-        }
-        .deploy-progress p:nth-child(4) {
-            animation-delay: 1.7s;
-        }
-        .deploy-progress p:nth-child(5) {
-            animation-delay: 2.2s;
-        }
-        .deploy-progress .success-message {
-            color: var(--neon-green);
-            font-weight: 600;
-            margin-top: 0.5rem;
-            font-size: 1rem;
-        }
-        @keyframes fade-in-up {
-            from {
-                opacity: 0;
-                transform: translateY(12px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            margin-top: 0.3rem;
+            text-align: right;
         }
 
         /* ---- Footer ---- */
@@ -766,13 +686,8 @@
             animation: pulse-heart 1.2s ease-in-out infinite;
         }
         @keyframes pulse-heart {
-            0%,
-            100% {
-                transform: scale(1);
-            }
-            50% {
-                transform: scale(1.25);
-            }
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.25); }
         }
         .footer a {
             color: var(--text-secondary);
@@ -785,57 +700,19 @@
 
         /* ---- Responsive ---- */
         @media (max-width: 640px) {
-            .app-container {
-                padding: 1.5rem 1.2rem;
-            }
-            .brand h1 {
-                font-size: 1.8rem;
-            }
-            .logo {
-                width: 72px;
-                height: 72px;
-            }
-            .logo img {
-                width: 54px;
-                height: 54px;
-            }
-            .prompt-area textarea {
-                min-height: 80px;
-            }
-            .suggestions {
-                gap: 0.3rem;
-            }
-            .sun {
-                width: 60px;
-                height: 60px;
-                right: 5%;
-            }
-        }
-
-        .hidden {
-            display: none !important;
-        }
-        .mt-2 {
-            margin-top: 0.75rem;
-        }
-        .flex-center {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        /* Glitch text class for any element */
-        .glitch-text {
-            display: inline-block;
-            transition: all 0.1s;
-        }
-        .glitch-text:hover {
-            animation: glitch 0.3s ease-in-out 2;
+            .app-container { padding: 1.5rem 1.2rem; }
+            .brand h1 { font-size: 1.8rem; }
+            .logo { width: 72px; height: 72px; }
+            .logo img { width: 54px; height: 54px; }
+            .prompt-area textarea { min-height: 80px; }
+            .suggestions { gap: 0.3rem; }
+            .sun { width: 60px; height: 60px; right: 5%; }
         }
     </style>
 </head>
 <body>
 
-    <!-- Weather (clouds + sun) -->
+    <!-- Weather -->
     <div class="weather">
         <div class="cloud"></div>
         <div class="cloud"></div>
@@ -845,9 +722,7 @@
 
     <div class="app-container">
 
-        <!-- ============================================================ -->
-        <!-- HEADER: Centered Logo + Brand                                -->
-        <!-- ============================================================ -->
+        <!-- HEADER -->
         <header class="header">
             <div class="logo-wrapper" id="logoWrapper">
                 <div class="logo">
@@ -861,18 +736,20 @@
         </header>
 
         <!-- ============================================================ -->
-        <!-- CARD: Prompt Input (will be hidden after deploy)            -->
+        <!-- CARD: Prompt (collapsible)                                   -->
         <!-- ============================================================ -->
         <div class="card" id="promptCard">
-            <h2>⚡ Forge Your Code</h2>
-            <div class="prompt-area">
+            <h2 id="promptToggle">
+                ⚡ Forge Your Code
+                <span class="toggle-icon" id="promptToggleIcon">▾</span>
+            </h2>
+            <div class="prompt-area" id="promptContent">
                 <textarea id="genPrompt" placeholder="Describe what you want to build...">Create a Python script that prints a random fact about space</textarea>
                 <div class="prompt-actions">
                     <button id="clearBtn" class="btn-3d" style="padding:0.3rem 1rem;font-size:0.7rem;">✕ Clear</button>
                     <button id="pasteBtn" class="btn-3d" style="padding:0.3rem 1rem;font-size:0.7rem;">📋 Paste</button>
                     <button id="genBtn" class="generate-btn" style="margin-left:auto;">🚀 Generate</button>
                 </div>
-                <!-- Suggestions -->
                 <div class="suggestions" id="suggestionChips">
                     <span class="suggestion-chip" data-prompt="Create a Flask web app with a REST API">Flask API</span>
                     <span class="suggestion-chip" data-prompt="Build a web scraper using requests and BeautifulSoup">Web Scraper</span>
@@ -881,88 +758,81 @@
                     <span class="suggestion-chip" data-prompt="Build a machine learning model with scikit-learn">ML Model</span>
                     <span class="suggestion-chip" data-prompt="Create a to-do list CLI app with argparse">CLI App</span>
                 </div>
+                <div class="log" id="genLog">⚡ Ready to forge.</div>
             </div>
-            <div class="log" id="genLog" style="margin-top:0.75rem;font-size:0.8rem;color:var(--text-secondary);">⚡ Ready to forge.</div>
         </div>
 
         <!-- ============================================================ -->
-        <!-- CARD: Generated Code (collapsible)                           -->
+        <!-- CARD: Code + Output                                          -->
         <!-- ============================================================ -->
         <div class="card code-panel" id="codePanel">
-            <div class="panel-header" id="panelHeader">
-                <h3>📄 Generated Code <span style="font-size:0.6rem;font-weight:400;color:var(--text-secondary);">(click to collapse)</span></h3>
-                <span class="toggle-icon" id="toggleIcon">▾</span>
-            </div>
-            <div class="code-editor" id="codeEditor">
+            <h2 style="cursor:default;">📄 Code &amp; Output</h2>
+            <!-- File tabs + run button -->
+            <div class="editor-toolbar">
                 <div class="file-tabs" id="fileTabs"></div>
-                <div class="editor-container">
-                    <textarea id="fileEditor" spellcheck="false"></textarea>
-                </div>
+                <button id="runBtn" class="btn-3d success" style="padding:0.3rem 1.2rem;font-size:0.7rem;display:none;">▶ Run</button>
             </div>
-            <div class="code-actions">
+            <!-- Editor -->
+            <div class="editor-wrapper">
+                <textarea id="codeEditor" style="display:none;"></textarea>
+            </div>
+            <!-- Output panel -->
+            <div class="output-panel" id="outputPanel">
+                <div id="outputContent" style="white-space:pre-wrap;"></div>
+            </div>
+            <!-- Action bar -->
+            <div class="action-bar">
                 <button id="deployBtn" class="btn-3d success" style="display:none;">🚀 Deploy Project</button>
+                <button id="downloadBtn" class="btn-3d primary" style="display:none;">📥 Download ZIP</button>
                 <span id="fileStatus" style="font-size:0.75rem;color:var(--text-secondary);margin-left:0.5rem;"></span>
             </div>
-            <!-- Deploy progress / output panel -->
-            <div class="deploy-progress" id="deployProgress">
-                <p>📦 Packaging your project...</p>
-                <p>🔧 Optimizing dependencies...</p>
-                <p>🌐 Preparing deployment environment...</p>
-                <p>✅ Project is ready!</p>
-                <div class="success-message">📥 Click below to download your project as ZIP.</div>
-                <div style="margin-top:0.75rem;">
-                    <button id="downloadBtn" class="btn-3d primary" style="display:inline-block;">📥 Download ZIP</button>
-                </div>
+            <!-- Progress bar -->
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar" id="progressBar"></div>
+                <div class="progress-label" id="progressLabel">0%</div>
             </div>
         </div>
 
-        <!-- ============================================================ -->
-        <!-- FOOTER                                                        -->
-        <!-- ============================================================ -->
+        <!-- FOOTER -->
         <footer class="footer">
             <span>© 2025 <a href="https://github.com/suryasticsai" target="_blank">Suryasticsai</a></span>
             <span>Made with <span class="heart">🩷</span> by <a href="https://github.com/suryasticsai" target="_blank">@suryasticsai</a></span>
-            <span>
-                <a href="https://github.com/suryasticsai/grishtesync-backend" target="_blank">GitHub</a>
-            </span>
+            <span><a href="https://github.com/suryasticsai/grishtesync-backend" target="_blank">GitHub</a></span>
         </footer>
     </div>
 
     <!-- ============================================================ -->
-    <!-- SCRIPT: Logic & Interactions                                  -->
+    <!-- SCRIPT                                                        -->
     <!-- ============================================================ -->
     <script type="module">
-        // --------------------------------------------------------------
-        // 1. IMPORTS
-        // --------------------------------------------------------------
         import {
             generateCode,
             on,
         } from "https://cdn.jsdelivr.net/gh/suryasticsai/grishtesync-backend@main/static/grishtesync-client.js";
 
-        // --------------------------------------------------------------
-        // 2. DOM REFS
-        // --------------------------------------------------------------
-        const $ = (id) => document.getElementById(id);
+        // ---- DOM refs ----
+        const $ = id => document.getElementById(id);
         const genBtn = $('genBtn');
         const genPrompt = $('genPrompt');
         const genLog = $('genLog');
         const clearBtn = $('clearBtn');
         const pasteBtn = $('pasteBtn');
         const suggestionChips = document.querySelectorAll('.suggestion-chip');
-
         const promptCard = $('promptCard');
+        const promptToggle = $('promptToggle');
+        const promptToggleIcon = $('promptToggleIcon');
+        const promptContent = $('promptContent');
         const codePanel = $('codePanel');
-        const panelHeader = $('panelHeader');
-        const toggleIcon = $('toggleIcon');
-        const codeEditor = $('codeEditor');
         const fileTabs = $('fileTabs');
-        const fileEditor = $('fileEditor');
-        const fileStatus = $('fileStatus');
         const deployBtn = $('deployBtn');
         const downloadBtn = $('downloadBtn');
-        const deployProgress = $('deployProgress');
-
+        const runBtn = $('runBtn');
+        const outputPanel = $('outputPanel');
+        const outputContent = $('outputContent');
+        const fileStatus = $('fileStatus');
+        const progressContainer = $('progressContainer');
+        const progressBar = $('progressBar');
+        const progressLabel = $('progressLabel');
         const logoWrapper = $('logoWrapper');
         const brandTitle = $('brandTitle');
         const body = document.body;
@@ -972,14 +842,11 @@
         let pyodide = null;
         let isDeploying = false;
         let audioCtx = null;
+        let editor = null;
 
-        // --------------------------------------------------------------
-        // 3. AUDIO: Button click sound (synthetic)
-        // --------------------------------------------------------------
-        function playClickSound() {
-            if (!audioCtx) {
-                audioCtx = new(window.AudioContext || window.webkitAudioContext)();
-            }
+        // ---- Audio click ----
+        function playClick() {
+            if (!audioCtx) audioCtx = new(window.AudioContext || window.webkitAudioContext)();
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
             osc.connect(gain);
@@ -991,43 +858,24 @@
             osc.start(audioCtx.currentTime);
             osc.stop(audioCtx.currentTime + 0.08);
         }
+        document.querySelectorAll('button').forEach(b => b.addEventListener('click', playClick));
 
-        // Attach click sound to all buttons
-        document.querySelectorAll('button').forEach(btn => {
-            btn.addEventListener('click', playClickSound);
-        });
-
-        // --------------------------------------------------------------
-        // 4. THEME TOGGLE (Logo click) + Glitch + Birds
-        // --------------------------------------------------------------
+        // ---- Theme toggle ----
         let isDay = false;
-
-        logoWrapper.addEventListener('click', async () => {
-            // Rotate logo
+        logoWrapper.addEventListener('click', () => {
             logoWrapper.classList.toggle('rotated');
-
-            // Toggle day/night
             isDay = !isDay;
             body.classList.toggle('day-mode', isDay);
-
-            // Glitch effect on brand title
             brandTitle.classList.remove('glitch');
-            void brandTitle.offsetWidth; // reflow
+            void brandTitle.offsetWidth;
             brandTitle.classList.add('glitch');
             setTimeout(() => brandTitle.classList.remove('glitch'), 1000);
-
-            // Bird chirp (only in day mode)
-            if (isDay) {
-                if (!audioCtx) {
-                    audioCtx = new(window.AudioContext || window.webkitAudioContext)();
-                }
-                playChirp();
-            }
+            if (isDay) playChirp();
         });
 
         function playChirp() {
+            if (!audioCtx) audioCtx = new(window.AudioContext || window.webkitAudioContext)();
             const now = audioCtx.currentTime;
-            // First chirp
             const osc1 = audioCtx.createOscillator();
             const gain1 = audioCtx.createGain();
             osc1.connect(gain1);
@@ -1040,8 +888,6 @@
             gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
             osc1.start(now);
             osc1.stop(now + 0.15);
-
-            // Second chirp
             const now2 = now + 0.2;
             const osc2 = audioCtx.createOscillator();
             const gain2 = audioCtx.createGain();
@@ -1057,178 +903,210 @@
             osc2.stop(now2 + 0.12);
         }
 
-        // --------------------------------------------------------------
-        // 5. PROMPT ACTIONS
-        // --------------------------------------------------------------
-        clearBtn.addEventListener('click', () => {
-            genPrompt.value = '';
-            genPrompt.focus();
+        // ---- Prompt collapse ----
+        promptToggle.addEventListener('click', () => {
+            const isCollapsed = promptContent.style.display === 'none';
+            promptContent.style.display = isCollapsed ? 'flex' : 'none';
+            promptToggleIcon.classList.toggle('collapsed', !isCollapsed);
+            promptToggleIcon.textContent = isCollapsed ? '▾' : '▸';
         });
 
+        // ---- Prompt actions ----
+        clearBtn.addEventListener('click', () => { genPrompt.value = ''; genPrompt.focus(); });
         pasteBtn.addEventListener('click', async () => {
             try {
                 const text = await navigator.clipboard.readText();
                 genPrompt.value = text;
                 genPrompt.focus();
-            } catch {
-                genPrompt.focus();
-                document.execCommand('paste');
-            }
+            } catch { genPrompt.focus(); document.execCommand('paste'); }
         });
-
         suggestionChips.forEach(chip => {
             chip.addEventListener('click', () => {
                 genPrompt.value = chip.dataset.prompt;
                 genPrompt.focus();
             });
         });
-
         genPrompt.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                genBtn.click();
-            }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); genBtn.click(); }
         });
 
-        // --------------------------------------------------------------
-        // 6. GENERATE CODE
-        // --------------------------------------------------------------
+        // ---- Generate ----
         genBtn.addEventListener('click', async () => {
             const prompt = genPrompt.value.trim();
-            if (!prompt) {
-                genLog.innerHTML = '<span style="color:#f85149;">❌ Please enter a prompt.</span>';
-                return;
-            }
-
+            if (!prompt) { genLog.innerHTML = '<span style="color:#f85149;">❌ Please enter a prompt.</span>'; return; }
             genLog.innerHTML = '⏳ Forging your code...';
             codePanel.classList.remove('visible');
-            deployProgress.classList.remove('visible');
+            runBtn.style.display = 'none';
             deployBtn.style.display = 'none';
-            // Make sure prompt card is visible
-            promptCard.style.display = 'block';
+            downloadBtn.style.display = 'none';
+            outputPanel.classList.remove('visible');
+            progressContainer.classList.remove('visible');
+            outputContent.textContent = '';
 
             try {
                 const result = await generateCode(prompt);
                 currentFiles = result.files || {};
-                const fileCount = Object.keys(currentFiles).length;
-                if (fileCount === 0) {
-                    genLog.innerHTML = '<span style="color:#f85149;">❌ No files were forged.</span>';
-                    return;
-                }
-
-                // Show code panel
+                const count = Object.keys(currentFiles).length;
+                if (count === 0) { genLog.innerHTML = '<span style="color:#f85149;">❌ No files forged.</span>'; return; }
                 codePanel.classList.add('visible');
-                codeEditor.classList.remove('collapsed');
-                toggleIcon.classList.remove('collapsed');
-                toggleIcon.textContent = '▾';
-
                 renderFiles(currentFiles);
-                genLog.innerHTML = `<span style="color:#34d399;">✅ Forged ${fileCount} files in ${result.generate_time || '?'}s.</span>`;
+                genLog.innerHTML = `<span style="color:#34d399;">✅ Forged ${count} files in ${result.generate_time || '?'}s.</span>`;
+                runBtn.style.display = 'inline-block';
                 deployBtn.style.display = 'inline-block';
-                deployProgress.classList.remove('visible');
-                isDeploying = false;
-                deployBtn.disabled = false;
-
+                // Show editor
+                if (editor) {
+                    editor.setValue(currentFiles[currentFile] || '');
+                    editor.refresh();
+                }
+                outputPanel.classList.remove('visible');
             } catch (err) {
                 genLog.innerHTML = `<span style="color:#f85149;">❌ ${err.message}</span>`;
             }
         });
 
-        // --------------------------------------------------------------
-        // 7. RENDER FILES & EDITOR
-        // --------------------------------------------------------------
+        // ---- Render files ----
         function renderFiles(files) {
-            const fileNames = Object.keys(files);
-            if (fileNames.length === 0) return;
-
+            const names = Object.keys(files);
+            if (!names.length) return;
             fileTabs.innerHTML = '';
-            fileNames.forEach((name, index) => {
+            names.forEach((name, idx) => {
                 const tab = document.createElement('span');
-                tab.className = 'file-tab' + (index === 0 ? ' active' : '');
-                const isPython = name.endsWith('.py');
-                tab.textContent = `${name} ${isPython ? '🐍' : '📄'}`;
+                tab.className = 'file-tab' + (idx === 0 ? ' active' : '');
+                const isPy = name.endsWith('.py');
+                tab.textContent = `${name} ${isPy ? '🐍' : '📄'}`;
                 tab.dataset.filename = name;
                 tab.addEventListener('click', () => {
                     document.querySelectorAll('.file-tab').forEach(t => t.classList.remove('active'));
                     tab.classList.add('active');
-                    showFile(name);
+                    switchFile(name);
                 });
                 fileTabs.appendChild(tab);
             });
-
-            const firstFile = fileNames[0];
-            showFile(firstFile);
+            // Setup CodeMirror
+            if (!editor) {
+                const textarea = document.querySelector('#codeEditor');
+                editor = CodeMirror.fromTextArea(textarea, {
+                    mode: 'python',
+                    lineNumbers: true,
+                    theme: 'default',
+                    indentUnit: 4,
+                    tabSize: 4,
+                    lineWrapping: true,
+                    extraKeys: { 'Tab': 'indentMore' }
+                });
+                // Update file content on change
+                editor.on('change', () => {
+                    if (currentFile && currentFiles[currentFile] !== undefined) {
+                        currentFiles[currentFile] = editor.getValue();
+                    }
+                });
+                // Adjust height
+                editor.setSize(null, 'auto');
+            }
+            const first = names[0];
+            switchFile(first);
         }
 
-        function showFile(filename) {
+        function switchFile(filename) {
             currentFile = filename;
-            fileEditor.value = currentFiles[filename];
             fileStatus.textContent = `Editing: ${filename}`;
+            if (editor) {
+                editor.setValue(currentFiles[filename] || '');
+                editor.refresh();
+            }
             document.querySelectorAll('.file-tab').forEach(tab => {
                 tab.classList.toggle('active', tab.dataset.filename === filename);
             });
+            // Show run button only for Python files
+            runBtn.style.display = filename.endsWith('.py') ? 'inline-block' : 'none';
+            // Clear output when switching
+            outputPanel.classList.remove('visible');
+            outputContent.textContent = '';
         }
 
-        fileEditor.addEventListener('input', () => {
-            if (currentFile && currentFiles[currentFile] !== undefined) {
-                currentFiles[currentFile] = fileEditor.value;
+        // ---- Run code (Pyodide) ----
+        runBtn.addEventListener('click', async () => {
+            if (!currentFile || !currentFiles[currentFile]) return;
+            if (!currentFile.endsWith('.py')) {
+                outputContent.textContent = '⚠️ Only Python files can be executed.';
+                outputPanel.classList.add('visible');
+                return;
+            }
+            outputPanel.classList.add('visible');
+            outputContent.textContent = '⏳ Running ...';
+            if (!pyodide) {
+                try {
+                    pyodide = await globalThis.loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.1/full/' });
+                } catch (e) {
+                    outputContent.textContent = `❌ Failed to load Python runtime: ${e.message}`;
+                    return;
+                }
+            }
+            const code = currentFiles[currentFile];
+            try {
+                // Capture stdout/stderr
+                pyodide.runPython(`
+import sys
+from io import StringIO
+sys.stdout = StringIO()
+sys.stderr = StringIO()
+                `);
+                try { pyodide.runPython(code); } catch (err) { /* captured in stderr */ }
+                const stdout = pyodide.runPython('sys.stdout.getvalue()');
+                const stderr = pyodide.runPython('sys.stderr.getvalue()');
+                let out = '';
+                if (stdout) out += stdout;
+                if (stderr) out += '\n' + stderr;
+                if (!out) out = '(No output)';
+                outputContent.textContent = out;
+                // Reset
+                pyodide.runPython('sys.stdout = sys.__stdout__; sys.stderr = sys.__stderr__');
+            } catch (err) {
+                outputContent.textContent = `❌ Error: ${err.message}`;
             }
         });
 
-        // --------------------------------------------------------------
-        // 8. COLLAPSE / EXPAND PANEL
-        // --------------------------------------------------------------
-        panelHeader.addEventListener('click', () => {
-            const isCollapsed = codeEditor.classList.toggle('collapsed');
-            toggleIcon.classList.toggle('collapsed', isCollapsed);
-            toggleIcon.textContent = isCollapsed ? '▸' : '▾';
-        });
-
-        // --------------------------------------------------------------
-        // 9. DEPLOY (Simulated) – collapse editor, hide prompt, show output
-        // --------------------------------------------------------------
+        // ---- Deploy with progress bar ----
         deployBtn.addEventListener('click', async () => {
             if (isDeploying) return;
             isDeploying = true;
             deployBtn.disabled = true;
 
-            // 1. Collapse code editor
-            codeEditor.classList.add('collapsed');
-            toggleIcon.classList.add('collapsed');
-            toggleIcon.textContent = '▸';
+            // Collapse prompt card
+            promptContent.style.display = 'none';
+            promptToggleIcon.classList.add('collapsed');
+            promptToggleIcon.textContent = '▸';
 
-            // 2. Hide the prompt card (clean interface)
-            promptCard.style.display = 'none';
+            // Show progress
+            progressContainer.classList.add('visible');
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += Math.random() * 8 + 2;
+                if (progress > 100) progress = 100;
+                progressBar.style.width = progress + '%';
+                progressLabel.textContent = Math.round(progress) + '%';
+                if (progress >= 100) {
+                    clearInterval(interval);
+                    progressLabel.textContent = '✅ Ready!';
+                    deployBtn.style.display = 'none';
+                    downloadBtn.style.display = 'inline-block';
+                    isDeploying = false;
+                    deployBtn.disabled = false;
+                }
+            }, 300);
 
-            // 3. Show deploy progress with messages
-            deployProgress.classList.add('visible');
-
-            // 4. After a few seconds, show download button (already in progress)
-            // The progress panel already contains the download button.
-            // We'll also re-enable the deploy button after a moment (but we hide it)
-            setTimeout(() => {
-                deployBtn.style.display = 'none';
-                isDeploying = false;
-                deployBtn.disabled = false;
-                // Optionally show a success message
-            }, 3000);
+            // Also hide run button and output during deployment? We can keep them but disable.
+            runBtn.disabled = true;
+            // After completion, re-enable run? We'll keep disabled for simplicity.
         });
 
-        // --------------------------------------------------------------
-        // 10. DOWNLOAD ZIP
-        // --------------------------------------------------------------
+        // ---- Download ZIP ----
         downloadBtn.addEventListener('click', async () => {
-            if (Object.keys(currentFiles).length === 0) {
-                alert('No files to download.');
-                return;
-            }
-
+            if (!Object.keys(currentFiles).length) { alert('No files to download.'); return; }
             try {
                 const JSZip = (await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm')).default;
                 const zip = new JSZip();
-                Object.entries(currentFiles).forEach(([name, content]) => {
-                    zip.file(name, content);
-                });
+                Object.entries(currentFiles).forEach(([name, content]) => zip.file(name, content));
                 const blob = await zip.generateAsync({ type: 'blob' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -1238,15 +1116,8 @@
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
-                // Optional: show feedback
-                const msg = document.createElement('div');
-                msg.style.color = 'var(--neon-green)';
-                msg.style.marginTop = '0.5rem';
-                msg.textContent = '✅ Download started!';
-                deployProgress.appendChild(msg);
-                setTimeout(() => msg.remove(), 3000);
-            } catch (err) {
-                // Fallback: download individually
+            } catch (e) {
+                // fallback individual download
                 Object.entries(currentFiles).forEach(([name, content]) => {
                     const blob = new Blob([content], { type: 'text/plain' });
                     const url = URL.createObjectURL(blob);
@@ -1261,28 +1132,16 @@
             }
         });
 
-        // --------------------------------------------------------------
-        // 11. LOAD PYODIDE (background)
-        // --------------------------------------------------------------
-        async function loadPyodideRuntime() {
-            if (pyodide) return pyodide;
+        // ---- Load Pyodide in background ----
+        async function loadPyodideBg() {
             try {
-                pyodide = await globalThis.loadPyodide({
-                    indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.1/full/',
-                });
-                console.log('Pyodide loaded');
-                return pyodide;
-            } catch (e) {
-                console.warn('Pyodide load failed:', e);
-                return null;
-            }
+                pyodide = await globalThis.loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.1/full/' });
+                console.log('Pyodide ready');
+            } catch (e) { console.warn('Pyodide load failed', e); }
         }
-        loadPyodideRuntime();
+        loadPyodideBg();
 
-        // --------------------------------------------------------------
-        // 12. EVENT BUS (optional)
-        // --------------------------------------------------------------
-        console.log('🚀 GrishteSync · Prompt2Prod ready!');
+        console.log('🚀 GrishteSync · Prompt2Prod ready');
     </script>
 
 </body>
