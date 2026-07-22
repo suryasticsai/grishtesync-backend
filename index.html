@@ -7,18 +7,15 @@
     <link rel="icon" type="image/png" href="https://i.ibb.co/RGmb4FKk/1781072041102.png" />
     <!-- Pyodide CDN -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js"></script>
-    <!-- CodeMirror (IDE-style editor) -->
+    <!-- CodeMirror -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <style>
-        /* ================================================================
-               GLOBAL RESET & BASE
-            ================================================================ */
+        /* --- Same styles as before --- */
         * { margin: 0; padding: 0; box-sizing: border-box; }
-
         :root {
             --bg-primary: #070b17;
             --bg-secondary: #0f1a2b;
@@ -36,7 +33,6 @@
             --transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
             --card-bg: rgba(12, 12, 35, 0.5);
         }
-
         body.day-mode {
             --bg-primary: #e8f0fa;
             --bg-secondary: #d0dce8;
@@ -53,7 +49,6 @@
             --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.08);
             --card-bg: rgba(255, 255, 255, 0.65);
         }
-
         body {
             background: var(--bg-primary);
             color: var(--text-primary);
@@ -66,8 +61,6 @@
             transition: var(--transition);
             position: relative;
         }
-
-        /* ---- Stars (dark) ---- */
         body::before {
             content: '';
             position: fixed;
@@ -87,8 +80,6 @@
             transition: opacity 0.8s ease;
         }
         body.day-mode::before { opacity: 0; }
-
-        /* ---- Weather (clouds + sun) ---- */
         .weather {
             position: fixed;
             inset: 0;
@@ -113,7 +104,6 @@
             0% { transform: translateX(-150px); }
             100% { transform: translateX(calc(100vw + 200px)); }
         }
-
         .sun {
             position: absolute;
             top: 5%;
@@ -129,8 +119,6 @@
             0%, 100% { transform: scale(1); box-shadow: 0 0 80px #ffaa00, 0 0 150px #ff880066; }
             50% { transform: scale(1.08); box-shadow: 0 0 100px #ffaa00, 0 0 200px #ff880088; }
         }
-
-        /* ---- Main container ---- */
         .app-container {
             max-width: 1100px;
             width: 100%;
@@ -157,10 +145,6 @@
             pointer-events: none;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
-
-        /* ================================================================
-               HEADER
-            ================================================================ */
         .header {
             display: flex;
             flex-direction: column;
@@ -216,7 +200,6 @@
             transform: rotate(360deg) scale(1.1);
             box-shadow: 0 0 60px rgba(0, 212, 255, 0.4);
         }
-
         .brand h1 {
             font-family: 'Orbitron', sans-serif;
             font-size: 2.4rem;
@@ -253,9 +236,6 @@
         }
         .brand .tagline span { color: var(--neon-cyan); font-weight: 700; }
 
-        /* ================================================================
-               CARDS
-            ================================================================ */
         .card {
             background: var(--card-bg);
             backdrop-filter: blur(8px);
@@ -289,7 +269,6 @@
             border-color: rgba(0, 102, 170, 0.1);
         }
         body.day-mode .card:hover { border-color: rgba(0, 102, 170, 0.25); }
-
         .card h2 {
             font-family: 'Orbitron', sans-serif;
             font-size: 1rem;
@@ -311,7 +290,6 @@
         }
         .card h2 .toggle-icon.collapsed { transform: rotate(-90deg); }
 
-        /* ---- Prompt area ---- */
         .prompt-area {
             display: flex;
             flex-direction: column;
@@ -342,7 +320,6 @@
             border-color: var(--neon-cyan);
             box-shadow: 0 0 30px rgba(0, 212, 255, 0.1);
         }
-
         .prompt-actions {
             display: flex;
             gap: 0.6rem;
@@ -375,7 +352,6 @@
             background: rgba(0, 102, 170, 0.12);
             color: var(--text-primary);
         }
-
         .generate-btn {
             background: linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(167, 139, 250, 0.2));
             border: 1px solid var(--neon-cyan);
@@ -407,7 +383,6 @@
         body.day-mode .generate-btn:hover {
             background: linear-gradient(135deg, rgba(0, 102, 170, 0.25), rgba(109, 79, 201, 0.25));
         }
-
         .suggestions {
             display: flex;
             flex-wrap: wrap;
@@ -439,17 +414,13 @@
             background: rgba(0, 102, 170, 0.1);
             color: var(--text-primary);
         }
-
         .log {
             font-size: 0.8rem;
             color: var(--text-secondary);
             margin-top: 0.75rem;
         }
-
-        /* ---- Code & Output Panel ---- */
         .code-panel { display: none; }
         .code-panel.visible { display: block; }
-
         .editor-toolbar {
             display: flex;
             justify-content: space-between;
@@ -488,7 +459,6 @@
             color: #fff;
             border-color: rgba(0, 212, 255, 0.2);
         }
-
         .editor-wrapper {
             position: relative;
             border-radius: 20px;
@@ -506,7 +476,6 @@
         body.day-mode .CodeMirror {
             background: rgba(255, 255, 255, 0.3);
         }
-
         .output-panel {
             margin-top: 1rem;
             background: rgba(0, 0, 0, 0.3);
@@ -526,7 +495,7 @@
         .output-panel .stderr { color: #f85149; }
         .output-panel .no-output { color: var(--text-secondary); font-style: italic; }
         .output-panel .install-info { color: var(--neon-cyan); font-style: italic; }
-
+        .output-panel .error-msg { color: #f85149; font-weight: bold; }
         .action-bar {
             display: flex;
             gap: 0.75rem;
@@ -541,8 +510,6 @@
             font-style: italic;
             margin-left: 0.5rem;
         }
-
-        /* ---- 3D Buttons ---- */
         .btn-3d {
             position: relative;
             display: inline-block;
@@ -587,8 +554,12 @@
             box-shadow: 0 2px 0 #3f2b7a, 0 8px 20px rgba(109, 79, 201, 0.2);
         }
         body.day-mode .btn-3d { color: #fff; }
-
-        /* ---- Progress Bar ---- */
+        .btn-3d:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: 0 6px 0 #0a121f, 0 8px 20px rgba(0,0,0,0.4);
+        }
         .progress-container {
             width: 100%;
             background: rgba(0, 0, 0, 0.3);
@@ -612,8 +583,6 @@
             margin-top: 0.3rem;
             text-align: right;
         }
-
-        /* ---- Footer ---- */
         .footer {
             margin-top: 2rem;
             padding-top: 1.2rem;
@@ -645,7 +614,6 @@
             transition: color 0.3s;
         }
         .footer a:hover { color: var(--neon-cyan); }
-
         @media (max-width: 640px) {
             .app-container { padding: 1.5rem 1.2rem; }
             .brand h1 { font-size: 1.8rem; }
@@ -658,18 +626,13 @@
     </style>
 </head>
 <body>
-
-    <!-- Weather -->
     <div class="weather">
         <div class="cloud"></div>
         <div class="cloud"></div>
         <div class="cloud"></div>
         <div class="sun"></div>
     </div>
-
     <div class="app-container">
-
-        <!-- HEADER -->
         <header class="header">
             <div class="logo-wrapper" id="logoWrapper">
                 <div class="logo">
@@ -682,9 +645,7 @@
             </div>
         </header>
 
-        <!-- ============================================================ -->
-        <!-- CARD: Prompt (collapsible)                                   -->
-        <!-- ============================================================ -->
+        <!-- Prompt Card -->
         <div class="card" id="promptCard">
             <h2 id="promptToggle">
                 ⚡ Forge Your Code
@@ -709,39 +670,31 @@
             </div>
         </div>
 
-        <!-- ============================================================ -->
-        <!-- CARD: Code + Output                                          -->
-        <!-- ============================================================ -->
+        <!-- Code + Output Card -->
         <div class="card code-panel" id="codePanel">
             <h2 style="cursor:default;">📄 Code &amp; Output</h2>
-            <!-- File tabs + run button -->
             <div class="editor-toolbar">
                 <div class="file-tabs" id="fileTabs"></div>
                 <button id="runBtn" class="btn-3d success" style="padding:0.3rem 1.2rem;font-size:0.7rem;display:none;">▶ Run</button>
             </div>
-            <!-- Editor -->
             <div class="editor-wrapper">
                 <textarea id="codeEditor" style="display:none;"></textarea>
             </div>
-            <!-- Output panel -->
             <div class="output-panel" id="outputPanel">
                 <div id="outputContent" style="white-space:pre-wrap;"></div>
             </div>
-            <!-- Action bar -->
             <div class="action-bar">
                 <button id="createBtn" class="btn-3d success" style="display:none;">📦 Create Project</button>
                 <button id="downloadBtn" class="btn-3d primary" style="display:none;">📥 Download ZIP</button>
                 <span class="note" id="noteMsg">💡 Generated project can be downloaded as a ZIP and deployed anywhere.</span>
                 <span id="fileStatus" style="font-size:0.75rem;color:var(--text-secondary);margin-left:0.5rem;"></span>
             </div>
-            <!-- Progress bar -->
             <div class="progress-container" id="progressContainer">
                 <div class="progress-bar" id="progressBar"></div>
                 <div class="progress-label" id="progressLabel">0%</div>
             </div>
         </div>
 
-        <!-- FOOTER -->
         <footer class="footer">
             <span>© 2025 <a href="https://github.com/suryasticsai" target="_blank">Suryasticsai</a></span>
             <span>Made with <span class="heart">🩷</span> by <a href="https://github.com/suryasticsai" target="_blank">@suryasticsai</a></span>
@@ -749,13 +702,9 @@
         </footer>
     </div>
 
-    <!-- ============================================================ -->
-    <!-- SCRIPT                                                        -->
-    <!-- ============================================================ -->
     <script type="module">
         import {
             generateCode,
-            on,
         } from "https://cdn.jsdelivr.net/gh/suryasticsai/grishtesync-backend@main/static/grishtesync-client.js";
 
         // ---- DOM refs ----
@@ -766,7 +715,6 @@
         const clearBtn = $('clearBtn');
         const pasteBtn = $('pasteBtn');
         const suggestionChips = document.querySelectorAll('.suggestion-chip');
-        const promptCard = $('promptCard');
         const promptToggle = $('promptToggle');
         const promptToggleIcon = $('promptToggleIcon');
         const promptContent = $('promptContent');
@@ -792,6 +740,7 @@
         let isProcessing = false;
         let audioCtx = null;
         let editor = null;
+        let pyodideReady = false;
 
         // ---- Audio click ----
         function playClick() {
@@ -968,7 +917,26 @@
             outputContent.textContent = '';
         }
 
-        // ---- SMART RUN: Auto‑install missing packages ----
+        // ---- Load Pyodide with status ----
+        async function loadPyodideWithRetry() {
+            if (pyodideReady) return true;
+            try {
+                outputContent.textContent = '⏳ Loading Python runtime (Pyodide)...';
+                outputPanel.classList.add('visible');
+                pyodide = await globalThis.loadPyodide({
+                    indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.1/full/'
+                });
+                pyodideReady = true;
+                outputContent.textContent = '✅ Python runtime loaded.';
+                return true;
+            } catch (e) {
+                outputContent.textContent = `❌ Failed to load Pyodide: ${e.message}`;
+                console.error('Pyodide load error:', e);
+                return false;
+            }
+        }
+
+        // ---- SMART RUN with better error handling ----
         runBtn.addEventListener('click', async () => {
             if (!currentFile || !currentFiles[currentFile]) return;
             if (!currentFile.endsWith('.py')) {
@@ -976,20 +944,14 @@
                 outputPanel.classList.add('visible');
                 return;
             }
-            outputPanel.classList.add('visible');
-            outputContent.textContent = '⏳ Running ...';
 
-            if (!pyodide) {
-                try {
-                    pyodide = await globalThis.loadPyodide({
-                        indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.1/full/'
-                    });
-                } catch (e) {
-                    outputContent.textContent = `❌ Failed to load Python runtime: ${e.message}`;
-                    return;
-                }
+            // Ensure Pyodide is loaded
+            if (!pyodideReady) {
+                const loaded = await loadPyodideWithRetry();
+                if (!loaded) return;
             }
 
+            // Load micropip if not already
             let micropip = null;
             try {
                 micropip = pyodide.pyimport('micropip');
@@ -999,11 +961,15 @@
                     micropip = pyodide.pyimport('micropip');
                 } catch (e) {
                     outputContent.textContent = `❌ Failed to load micropip: ${e.message}`;
+                    outputPanel.classList.add('visible');
                     return;
                 }
             }
 
             const code = currentFiles[currentFile];
+            outputPanel.classList.add('visible');
+            outputContent.textContent = '⏳ Running ...';
+
             const runWithAutoInstall = async () => {
                 pyodide.runPython(`
 import sys
@@ -1011,7 +977,6 @@ from io import StringIO
 sys.stdout = StringIO()
 sys.stderr = StringIO()
                 `);
-                let installAttempted = false;
                 let missingModule = null;
 
                 try {
@@ -1024,7 +989,6 @@ sys.stderr = StringIO()
                         try {
                             outputContent.textContent = `📦 Missing module "${missingModule}". Attempting to install...`;
                             await micropip.install(missingModule);
-                            installAttempted = true;
                             outputContent.textContent += `\n✅ Installed "${missingModule}". Re-running...`;
                             pyodide.runPython(`
 sys.stdout = StringIO()
@@ -1078,13 +1042,12 @@ sys.stderr = sys.__stderr__
             }
         });
 
-        // ---- Create Project (with progress) ----
+        // ---- Create Project ----
         createBtn.addEventListener('click', async () => {
             if (isProcessing) return;
             isProcessing = true;
             createBtn.disabled = true;
 
-            // Collapse prompt
             promptContent.style.display = 'none';
             promptToggleIcon.classList.add('collapsed');
             promptToggleIcon.textContent = '▸';
@@ -1143,19 +1106,12 @@ sys.stderr = sys.__stderr__
             }
         });
 
-        // ---- Load Pyodide in background ----
-        async function loadPyodideBg() {
-            try {
-                pyodide = await globalThis.loadPyodide({
-                    indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.1/full/'
-                });
-                console.log('Pyodide ready');
-            } catch (e) { console.warn('Pyodide load failed', e); }
-        }
-        loadPyodideBg();
+        // ---- Preload Pyodide in background ----
+        (async () => {
+            await loadPyodideWithRetry();
+        })();
 
-        console.log('🚀 GrishteSync · Prompt2Prod ready (with auto‑install)');
+        console.log('🚀 GrishteSync · Prompt2Prod ready (with auto‑install & better error handling)');
     </script>
-
 </body>
 </html>
