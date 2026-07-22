@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GrishteSync · Prompt2Prod</title>
     <link rel="icon" type="image/png" href="https://i.ibb.co/RGmb4FKk/1781072041102.png" />
-    <!-- Pyodide CDN (for running Python) -->
+    <!-- Pyodide CDN -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js"></script>
     <!-- CodeMirror (IDE-style editor) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
@@ -17,11 +17,7 @@
         /* ================================================================
                GLOBAL RESET & BASE
             ================================================================ */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         :root {
             --bg-primary: #070b17;
@@ -90,9 +86,7 @@
             z-index: 0;
             transition: opacity 0.8s ease;
         }
-        body.day-mode::before {
-            opacity: 0;
-        }
+        body.day-mode::before { opacity: 0; }
 
         /* ---- Weather (clouds + sun) ---- */
         .weather {
@@ -104,9 +98,7 @@
             opacity: 0;
             transition: opacity 1.5s ease;
         }
-        body.day-mode .weather {
-            opacity: 1;
-        }
+        body.day-mode .weather { opacity: 1; }
         .cloud {
             position: absolute;
             background: rgba(255, 255, 255, 0.7);
@@ -114,29 +106,9 @@
             filter: blur(40px);
             animation: float-cloud 25s linear infinite;
         }
-        .cloud:nth-child(1) {
-            width: 300px;
-            height: 100px;
-            top: 10%;
-            left: -10%;
-            animation-duration: 28s;
-        }
-        .cloud:nth-child(2) {
-            width: 400px;
-            height: 120px;
-            top: 30%;
-            left: 30%;
-            animation-duration: 32s;
-            animation-delay: -6s;
-        }
-        .cloud:nth-child(3) {
-            width: 250px;
-            height: 80px;
-            top: 60%;
-            left: 60%;
-            animation-duration: 24s;
-            animation-delay: -12s;
-        }
+        .cloud:nth-child(1) { width: 300px; height: 100px; top: 10%; left: -10%; animation-duration: 28s; }
+        .cloud:nth-child(2) { width: 400px; height: 120px; top: 30%; left: 30%; animation-duration: 32s; animation-delay: -6s; }
+        .cloud:nth-child(3) { width: 250px; height: 80px; top: 60%; left: 60%; animation-duration: 24s; animation-delay: -12s; }
         @keyframes float-cloud {
             0% { transform: translateX(-150px); }
             100% { transform: translateX(calc(100vw + 200px)); }
@@ -184,9 +156,7 @@
             animation: spin 30s linear infinite;
             pointer-events: none;
         }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
         /* ================================================================
                HEADER
@@ -219,9 +189,7 @@
             mask-composite: exclude;
             animation: spin-glow 6s linear infinite;
         }
-        @keyframes spin-glow {
-            to { transform: rotate(360deg); }
-        }
+        @keyframes spin-glow { to { transform: rotate(360deg); } }
         .logo {
             width: 96px;
             height: 96px;
@@ -283,10 +251,7 @@
             margin-top: 0.25rem;
             font-weight: 400;
         }
-        .brand .tagline span {
-            color: var(--neon-cyan);
-            font-weight: 700;
-        }
+        .brand .tagline span { color: var(--neon-cyan); font-weight: 700; }
 
         /* ================================================================
                CARDS
@@ -323,9 +288,7 @@
             background: rgba(255, 255, 255, 0.6);
             border-color: rgba(0, 102, 170, 0.1);
         }
-        body.day-mode .card:hover {
-            border-color: rgba(0, 102, 170, 0.25);
-        }
+        body.day-mode .card:hover { border-color: rgba(0, 102, 170, 0.25); }
 
         .card h2 {
             font-family: 'Orbitron', sans-serif;
@@ -346,9 +309,7 @@
             font-size: 0.8rem;
             margin-left: auto;
         }
-        .card h2 .toggle-icon.collapsed {
-            transform: rotate(-90deg);
-        }
+        .card h2 .toggle-icon.collapsed { transform: rotate(-90deg); }
 
         /* ---- Prompt area ---- */
         .prompt-area {
@@ -437,9 +398,7 @@
             box-shadow: 0 0 40px rgba(0, 212, 255, 0.25);
             background: linear-gradient(135deg, rgba(0, 212, 255, 0.3), rgba(167, 139, 250, 0.3));
         }
-        .generate-btn:active {
-            transform: scale(0.96);
-        }
+        .generate-btn:active { transform: scale(0.96); }
         body.day-mode .generate-btn {
             background: linear-gradient(135deg, rgba(0, 102, 170, 0.15), rgba(109, 79, 201, 0.15));
             border-color: var(--neon-cyan);
@@ -488,12 +447,8 @@
         }
 
         /* ---- Code & Output Panel ---- */
-        .code-panel {
-            display: none;
-        }
-        .code-panel.visible {
-            display: block;
-        }
+        .code-panel { display: none; }
+        .code-panel.visible { display: block; }
 
         .editor-toolbar {
             display: flex;
@@ -558,7 +513,7 @@
             border-radius: 20px;
             border: 1px solid rgba(0, 212, 255, 0.06);
             padding: 1rem;
-            max-height: 200px;
+            max-height: 250px;
             overflow-y: auto;
             font-family: 'Courier New', monospace;
             font-size: 0.85rem;
@@ -566,19 +521,11 @@
             color: var(--text-secondary);
             display: none;
         }
-        .output-panel.visible {
-            display: block;
-        }
-        .output-panel .stdout {
-            color: var(--neon-green);
-        }
-        .output-panel .stderr {
-            color: #f85149;
-        }
-        .output-panel .no-output {
-            color: var(--text-secondary);
-            font-style: italic;
-        }
+        .output-panel.visible { display: block; }
+        .output-panel .stdout { color: var(--neon-green); }
+        .output-panel .stderr { color: #f85149; }
+        .output-panel .no-output { color: var(--text-secondary); font-style: italic; }
+        .output-panel .install-info { color: var(--neon-cyan); font-style: italic; }
 
         .action-bar {
             display: flex;
@@ -632,9 +579,7 @@
         .btn-3d.secondary:active {
             box-shadow: 0 2px 0 #3f2b7a, 0 8px 20px rgba(109, 79, 201, 0.2);
         }
-        body.day-mode .btn-3d {
-            color: #fff;
-        }
+        body.day-mode .btn-3d { color: #fff; }
 
         /* ---- Progress Bar ---- */
         .progress-container {
@@ -646,9 +591,7 @@
             overflow: hidden;
             display: none;
         }
-        .progress-container.visible {
-            display: block;
-        }
+        .progress-container.visible { display: block; }
         .progress-bar {
             height: 100%;
             width: 0%;
@@ -694,11 +637,8 @@
             text-decoration: none;
             transition: color 0.3s;
         }
-        .footer a:hover {
-            color: var(--neon-cyan);
-        }
+        .footer a:hover { color: var(--neon-cyan); }
 
-        /* ---- Responsive ---- */
         @media (max-width: 640px) {
             .app-container { padding: 1.5rem 1.2rem; }
             .brand h1 { font-size: 1.8rem; }
@@ -953,7 +893,6 @@
                 genLog.innerHTML = `<span style="color:#34d399;">✅ Forged ${count} files in ${result.generate_time || '?'}s.</span>`;
                 runBtn.style.display = 'inline-block';
                 deployBtn.style.display = 'inline-block';
-                // Show editor
                 if (editor) {
                     editor.setValue(currentFiles[currentFile] || '');
                     editor.refresh();
@@ -982,7 +921,6 @@
                 });
                 fileTabs.appendChild(tab);
             });
-            // Setup CodeMirror
             if (!editor) {
                 const textarea = document.querySelector('#codeEditor');
                 editor = CodeMirror.fromTextArea(textarea, {
@@ -994,13 +932,11 @@
                     lineWrapping: true,
                     extraKeys: { 'Tab': 'indentMore' }
                 });
-                // Update file content on change
                 editor.on('change', () => {
                     if (currentFile && currentFiles[currentFile] !== undefined) {
                         currentFiles[currentFile] = editor.getValue();
                     }
                 });
-                // Adjust height
                 editor.setSize(null, 'auto');
             }
             const first = names[0];
@@ -1017,14 +953,12 @@
             document.querySelectorAll('.file-tab').forEach(tab => {
                 tab.classList.toggle('active', tab.dataset.filename === filename);
             });
-            // Show run button only for Python files
             runBtn.style.display = filename.endsWith('.py') ? 'inline-block' : 'none';
-            // Clear output when switching
             outputPanel.classList.remove('visible');
             outputContent.textContent = '';
         }
 
-        // ---- Run code (Pyodide) ----
+        // ---- SMART RUN: Auto‑install missing packages and re-run ----
         runBtn.addEventListener('click', async () => {
             if (!currentFile || !currentFiles[currentFile]) return;
             if (!currentFile.endsWith('.py')) {
@@ -1034,24 +968,93 @@
             }
             outputPanel.classList.add('visible');
             outputContent.textContent = '⏳ Running ...';
+
+            // load Pyodide if not already
             if (!pyodide) {
                 try {
-                    pyodide = await globalThis.loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.1/full/' });
+                    pyodide = await globalThis.loadPyodide({
+                        indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.1/full/'
+                    });
                 } catch (e) {
                     outputContent.textContent = `❌ Failed to load Python runtime: ${e.message}`;
                     return;
                 }
             }
-            const code = currentFiles[currentFile];
+
+            // load micropip if not already available
+            let micropip = null;
             try {
-                // Capture stdout/stderr
+                micropip = pyodide.pyimport('micropip');
+            } catch {
+                try {
+                    await pyodide.loadPackage('micropip');
+                    micropip = pyodide.pyimport('micropip');
+                } catch (e) {
+                    outputContent.textContent = `❌ Failed to load micropip: ${e.message}`;
+                    return;
+                }
+            }
+
+            const code = currentFiles[currentFile];
+            // We'll try to run once; if a ModuleNotFoundError occurs, we try to install the missing package and re-run.
+            const runWithAutoInstall = async () => {
+                // Redirect stdout/stderr
                 pyodide.runPython(`
 import sys
 from io import StringIO
 sys.stdout = StringIO()
 sys.stderr = StringIO()
                 `);
-                try { pyodide.runPython(code); } catch (err) { /* captured in stderr */ }
+
+                let installAttempted = false;
+                let missingModule = null;
+
+                // Run the code, but capture any ModuleNotFoundError
+                try {
+                    pyodide.runPython(code);
+                } catch (err) {
+                    // Check if it's a ModuleNotFoundError
+                    const errMsg = String(err);
+                    const match = errMsg.match(/ModuleNotFoundError: No module named ['"]([^'"]+)['"]/);
+                    if (match) {
+                        missingModule = match[1];
+                        // Try to install it using micropip
+                        try {
+                            outputContent.textContent = `📦 Missing module "${missingModule}". Attempting to install...`;
+                            // Install the package using micropip (if it's available in Pyodide or PyPI)
+                            await micropip.install(missingModule);
+                            installAttempted = true;
+                            outputContent.textContent += `\n✅ Installed "${missingModule}". Re-running...`;
+                            // Reset stdout/stderr and try again
+                            pyodide.runPython(`
+sys.stdout = StringIO()
+sys.stderr = StringIO()
+                            `);
+                            try {
+                                pyodide.runPython(code);
+                            } catch (retryErr) {
+                                // If it still fails, show the error
+                                const stdout2 = pyodide.runPython('sys.stdout.getvalue()');
+                                const stderr2 = pyodide.runPython('sys.stderr.getvalue()');
+                                let out = '';
+                                if (stdout2) out += stdout2;
+                                if (stderr2) out += '\n' + stderr2;
+                                if (!out) out = `❌ ${retryErr}`;
+                                outputContent.textContent = out;
+                                return;
+                            }
+                        } catch (installErr) {
+                            // Installation failed
+                            outputContent.textContent = `❌ Failed to install "${missingModule}": ${installErr}`;
+                            return;
+                        }
+                    } else {
+                        // Some other error, re-throw
+                        throw err;
+                    }
+                }
+
+                // Get final output
                 const stdout = pyodide.runPython('sys.stdout.getvalue()');
                 const stderr = pyodide.runPython('sys.stderr.getvalue()');
                 let out = '';
@@ -1059,10 +1062,25 @@ sys.stderr = StringIO()
                 if (stderr) out += '\n' + stderr;
                 if (!out) out = '(No output)';
                 outputContent.textContent = out;
-                // Reset
-                pyodide.runPython('sys.stdout = sys.__stdout__; sys.stderr = sys.__stderr__');
+            };
+
+            try {
+                await runWithAutoInstall();
             } catch (err) {
-                outputContent.textContent = `❌ Error: ${err.message}`;
+                // Fallback for any unhandled error
+                const stdout = pyodide.runPython('sys.stdout.getvalue()');
+                const stderr = pyodide.runPython('sys.stderr.getvalue()');
+                let out = '';
+                if (stdout) out += stdout;
+                if (stderr) out += '\n' + stderr;
+                if (!out) out = `❌ ${err}`;
+                outputContent.textContent = out;
+            } finally {
+                // Reset stdout/stderr to default
+                pyodide.runPython(`
+sys.stdout = sys.__stdout__
+sys.stderr = sys.__stderr__
+                `);
             }
         });
 
@@ -1072,12 +1090,10 @@ sys.stderr = StringIO()
             isDeploying = true;
             deployBtn.disabled = true;
 
-            // Collapse prompt card
             promptContent.style.display = 'none';
             promptToggleIcon.classList.add('collapsed');
             promptToggleIcon.textContent = '▸';
 
-            // Show progress
             progressContainer.classList.add('visible');
             let progress = 0;
             const interval = setInterval(() => {
@@ -1095,9 +1111,7 @@ sys.stderr = StringIO()
                 }
             }, 300);
 
-            // Also hide run button and output during deployment? We can keep them but disable.
             runBtn.disabled = true;
-            // After completion, re-enable run? We'll keep disabled for simplicity.
         });
 
         // ---- Download ZIP ----
@@ -1117,7 +1131,6 @@ sys.stderr = StringIO()
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
             } catch (e) {
-                // fallback individual download
                 Object.entries(currentFiles).forEach(([name, content]) => {
                     const blob = new Blob([content], { type: 'text/plain' });
                     const url = URL.createObjectURL(blob);
@@ -1135,13 +1148,15 @@ sys.stderr = StringIO()
         // ---- Load Pyodide in background ----
         async function loadPyodideBg() {
             try {
-                pyodide = await globalThis.loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.1/full/' });
+                pyodide = await globalThis.loadPyodide({
+                    indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.1/full/'
+                });
                 console.log('Pyodide ready');
             } catch (e) { console.warn('Pyodide load failed', e); }
         }
         loadPyodideBg();
 
-        console.log('🚀 GrishteSync · Prompt2Prod ready');
+        console.log('🚀 GrishteSync · Prompt2Prod ready (with auto‑install)');
     </script>
 
 </body>
