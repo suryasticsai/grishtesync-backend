@@ -3,388 +3,638 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GrishteSync · Vanilla JS Demo</title>
+    <title>CodeForge · AI Code Arena</title>
+    <!-- Favicon (GrishteSync logo) -->
+    <link rel="icon" type="image/png" href="https://i.ibb.co/RGmb4FKk/1781072041102.png" />
+    <!-- Pyodide CDN -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js"></script>
+    <!-- Google Font (Orbitron for gamified feel) -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&display=swap" rel="stylesheet" />
     <style>
-        /* ---------- Minimal dark theme ---------- */
+        /* ================================================================
+               GLOBAL RESET & BASE – Gamified Dark Neon
+            ================================================================ */
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        body {
-            background: #0d1117;
-            color: #e6edf3;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            padding: 2rem;
-            max-width: 1000px;
-            margin: 0 auto;
-            line-height: 1.6;
+
+        :root {
+            --bg-deep: #0b0b1a;
+            --bg-card: rgba(20, 20, 50, 0.7);
+            --neon-cyan: #00f0ff;
+            --neon-purple: #b44aff;
+            --neon-pink: #ff3ea5;
+            --neon-green: #39ff14;
+            --neon-orange: #ff8c00;
+            --text-main: #e0e0ff;
+            --text-dim: #8888bb;
+            --glow-cyan: 0 0 30px rgba(0, 240, 255, 0.3);
+            --glow-purple: 0 0 30px rgba(180, 74, 255, 0.3);
+            --border-neon: 1px solid rgba(0, 240, 255, 0.25);
         }
-        h1 {
+
+        body {
+            background: var(--bg-deep);
+            color: var(--text-main);
+            font-family: 'Orbitron', -apple-system, sans-serif;
+            min-height: 100vh;
+            padding: 2rem 1.5rem;
+            background-image:
+                radial-gradient(circle at 20% 30%, rgba(0, 240, 255, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 80% 70%, rgba(180, 74, 255, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 50% 50%, rgba(255, 62, 165, 0.03) 0%, transparent 60%);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            /* Animated grid overlay */
+            background-image:
+                linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            animation: grid-scroll 20s linear infinite;
+        }
+
+        @keyframes grid-scroll {
+            0% {
+                background-position: 0 0;
+            }
+            100% {
+                background-position: 40px 40px;
+            }
+        }
+
+        .app-container {
+            max-width: 1100px;
+            width: 100%;
+            background: var(--bg-card);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: 40px;
+            padding: 2.5rem 2.5rem 1.5rem;
+            border: var(--border-neon);
+            box-shadow: var(--glow-cyan), inset 0 0 80px rgba(0, 240, 255, 0.03);
+            position: relative;
+            overflow: hidden;
+            transition: box-shadow 0.4s ease;
+        }
+
+        .app-container::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: conic-gradient(from 0deg, transparent, rgba(0, 240, 255, 0.03), transparent, rgba(180, 74, 255, 0.03), transparent);
+            animation: spin 30s linear infinite;
+            pointer-events: none;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* ================================================================
+               HEADER – Logo + Brand (Gamified)
+            ================================================================ */
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+            position: relative;
+            z-index: 2;
+            flex-wrap: wrap;
+        }
+
+        .logo-wrapper {
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .logo-wrapper::after {
+            content: '';
+            position: absolute;
+            inset: -3px;
+            border-radius: 50%;
+            background: conic-gradient(from 0deg, var(--neon-cyan), var(--neon-purple), var(--neon-pink), var(--neon-cyan));
+            padding: 2px;
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            animation: spin-glow 4s linear infinite;
+        }
+
+        @keyframes spin-glow {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .logo {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            background: #0a0a1a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            z-index: 1;
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            overflow: hidden;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .logo:hover {
+            transform: scale(1.08) rotate(-5deg);
+            box-shadow: 0 0 40px rgba(0, 240, 255, 0.3);
+        }
+
+        .logo img {
+            width: 54px;
+            height: 54px;
+            object-fit: contain;
+            border-radius: 50%;
+            filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.4));
+        }
+
+        .brand h1 {
             font-size: 2rem;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 40px rgba(0, 240, 255, 0.2);
+            line-height: 1.2;
+        }
+
+        .brand .tagline {
+            font-size: 0.75rem;
+            letter-spacing: 2px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            margin-top: 2px;
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .brand .tagline span {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--neon-cyan);
+            box-shadow: 0 0 12px var(--neon-cyan);
+            animation: pulse-dot 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 0.3;
+                transform: scale(0.6);
+            }
+        }
+
+        /* ================================================================
+               CARDS – Glassmorphism with Neon borders
+            ================================================================ */
+        .card {
+            background: rgba(12, 12, 35, 0.6);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border-radius: 28px;
+            padding: 1.75rem;
+            margin-bottom: 1.75rem;
+            border: 1px solid rgba(0, 240, 255, 0.10);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+            position: relative;
+            z-index: 2;
+        }
+
+        .card:hover {
+            border-color: rgba(0, 240, 255, 0.25);
+            box-shadow: var(--glow-cyan), 0 8px 32px rgba(0, 0, 0, 0.6);
+        }
+
+        .card h2 {
+            font-size: 1rem;
             font-weight: 600;
-            margin-bottom: 0.5rem;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: var(--neon-cyan);
+            margin-bottom: 1rem;
             display: flex;
             align-items: center;
             gap: 0.75rem;
+            text-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
         }
-        .subtitle {
-            color: #8b949e;
-            margin-bottom: 2rem;
-            border-left: 3px solid #58a6ff;
-            padding-left: 1rem;
+
+        .card h2 .badge {
+            font-size: 0.55rem;
+            background: rgba(0, 240, 255, 0.12);
+            padding: 0.15rem 0.7rem;
+            border-radius: 40px;
+            color: var(--text-dim);
+            letter-spacing: 1px;
+            border: 1px solid rgba(0, 240, 255, 0.15);
         }
-        .card {
-            background: #161b22;
-            border: 1px solid #30363d;
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
+
+        /* ---- Inputs & Buttons (Neon gamified) ---- */
+        input,
+        textarea {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(0, 240, 255, 0.15);
+            color: var(--text-main);
+            padding: 0.7rem 1rem;
+            border-radius: 16px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.85rem;
+            width: 100%;
+            transition: border-color 0.3s, box-shadow 0.3s;
+            backdrop-filter: blur(4px);
         }
-        .card h2 {
-            font-size: 1.1rem;
-            font-weight: 500;
-            margin-bottom: 0.75rem;
-            color: #f0f6fc;
+
+        input:focus,
+        textarea:focus {
+            outline: none;
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 25px rgba(0, 240, 255, 0.15);
+        }
+
+        button {
+            background: rgba(0, 240, 255, 0.08);
+            border: 1px solid rgba(0, 240, 255, 0.25);
+            color: var(--text-main);
+            padding: 0.6rem 1.4rem;
+            border-radius: 40px;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 600;
+            font-size: 0.8rem;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            text-transform: uppercase;
+            backdrop-filter: blur(4px);
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.05);
+        }
+
+        button:hover {
+            background: rgba(0, 240, 255, 0.18);
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 35px rgba(0, 240, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        button.primary {
+            background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(180, 74, 255, 0.2));
+            border-color: var(--neon-cyan);
+            color: #fff;
+            text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+        }
+
+        button.primary:hover {
+            background: linear-gradient(135deg, rgba(0, 240, 255, 0.35), rgba(180, 74, 255, 0.35));
+            box-shadow: 0 0 50px rgba(0, 240, 255, 0.25);
+        }
+
+        button.run-btn {
+            background: rgba(57, 255, 20, 0.12);
+            border-color: rgba(57, 255, 20, 0.3);
+            color: var(--neon-green);
+            font-size: 0.7rem;
+            padding: 0.2rem 1rem;
+        }
+
+        button.run-btn:hover {
+            background: rgba(57, 255, 20, 0.25);
+            border-color: var(--neon-green);
+            box-shadow: 0 0 30px rgba(57, 255, 20, 0.2);
+        }
+
+        button.secondary {
+            background: rgba(180, 74, 255, 0.1);
+            border-color: rgba(180, 74, 255, 0.25);
+            color: var(--neon-purple);
+        }
+
+        button.secondary:hover {
+            background: rgba(180, 74, 255, 0.2);
+            border-color: var(--neon-purple);
+            box-shadow: 0 0 30px rgba(180, 74, 255, 0.2);
+        }
+
+        button:disabled {
+            opacity: 0.4;
+            pointer-events: none;
+            transform: none !important;
+        }
+
+        /* ---- File tabs (gamified pills) ---- */
+        .file-tabs {
+            display: flex;
+            gap: 0.6rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+
+        .file-tab {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 0.3rem 1rem;
+            border-radius: 40px;
+            font-size: 0.7rem;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            border: 1px solid rgba(0, 240, 255, 0.08);
+            color: var(--text-dim);
+            transition: all 0.2s;
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            gap: 0.4rem;
+            font-family: 'Orbitron', sans-serif;
         }
-        .badge {
-            font-size: 0.6rem;
-            background: #21262d;
-            padding: 0.15rem 0.6rem;
+
+        .file-tab.active {
+            background: rgba(0, 240, 255, 0.12);
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.1);
+        }
+
+        .file-tab:hover {
+            border-color: rgba(0, 240, 255, 0.25);
+            color: #fff;
+        }
+
+        /* ---- Code output & runner ---- */
+        pre {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(0, 240, 255, 0.06);
             border-radius: 20px;
-            color: #8b949e;
-            font-weight: 400;
+            padding: 1.2rem;
+            font-size: 0.8rem;
+            font-family: 'Courier New', monospace;
+            color: var(--text-main);
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            margin-top: 0.5rem;
+            box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.5);
         }
-        .badge.green {
-            background: #1b3a2c;
-            color: #3fb950;
+
+        .file-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 0.5rem;
         }
-        .badge.red {
-            background: #3d1a1a;
-            color: #f85149;
+
+        .output-box {
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(0, 240, 255, 0.1);
+            border-radius: 20px;
+            padding: 1rem;
+            margin-top: 0.75rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
         }
+
+        .output-box .stdout {
+            color: var(--neon-green);
+        }
+        .output-box .stderr {
+            color: #ff4d4d;
+        }
+
+        .log {
+            color: var(--text-dim);
+            font-size: 0.7rem;
+            letter-spacing: 0.5px;
+            margin-top: 0.5rem;
+        }
+        .log .ok {
+            color: var(--neon-green);
+        }
+        .log .err {
+            color: #ff4d4d;
+        }
+
+        /* ---- Flex utilities ---- */
         .flex {
             display: flex;
             gap: 0.75rem;
             flex-wrap: wrap;
             align-items: center;
         }
-        input,
-        textarea {
-            background: #0d1117;
-            border: 1px solid #30363d;
-            color: #e6edf3;
-            padding: 0.5rem 0.75rem;
-            border-radius: 8px;
-            font-size: 0.9rem;
-            width: 100%;
-            font-family: inherit;
+        .flex>* {
+            flex: 1 1 auto;
         }
-        input:focus,
-        textarea:focus {
-            outline: none;
-            border-color: #58a6ff;
-            box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.2);
+        .flex .no-grow {
+            flex: 0 0 auto;
         }
-        textarea {
-            min-height: 80px;
-            resize: vertical;
-        }
-        button {
-            background: #21262d;
-            border: 1px solid #30363d;
-            color: #c9d1d9;
-            padding: 0.5rem 1.2rem;
-            border-radius: 8px;
-            font-size: 0.9rem;
-            cursor: pointer;
-            transition: all 0.15s;
-            font-weight: 500;
-            white-space: nowrap;
-        }
-        button:hover {
-            background: #30363d;
-            border-color: #8b949e;
-        }
-        button.primary {
-            background: #238636;
-            border-color: #238636;
-            color: #fff;
-        }
-        button.primary:hover {
-            background: #2ea043;
-            border-color: #2ea043;
-        }
-        button.danger {
-            background: #da3633;
-            border-color: #da3633;
-            color: #fff;
-        }
-        button.danger:hover {
-            background: #f85149;
-            border-color: #f85149;
-        }
-        button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            pointer-events: none;
-        }
-        pre {
-            background: #0d1117;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            padding: 1rem;
-            overflow-x: auto;
-            font-size: 0.85rem;
-            color: #8b949e;
-            max-height: 300px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            word-break: break-word;
-            margin-top: 0.75rem;
-        }
-        .log {
-            color: #8b949e;
-            font-size: 0.85rem;
-            margin-top: 0.5rem;
-        }
-        .log .ok {
-            color: #3fb950;
-        }
-        .log .err {
-            color: #f85149;
-        }
-        .row {
+
+        /* ---- Footer ---- */
+        .footer {
+            margin-top: 2rem;
+            padding-top: 1.2rem;
+            border-top: 1px solid rgba(0, 240, 255, 0.06);
             display: flex;
-            gap: 1rem;
+            justify-content: space-between;
+            align-items: center;
             flex-wrap: wrap;
+            gap: 0.5rem;
+            font-size: 0.6rem;
+            letter-spacing: 1px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            position: relative;
+            z-index: 2;
         }
-        .row>* {
-            flex: 1;
-            min-width: 200px;
+
+        .footer .socials {
+            display: flex;
+            gap: 1.2rem;
         }
-        .status-badge {
+
+        .footer .socials a {
+            color: var(--text-dim);
+            text-decoration: none;
+            transition: color 0.3s, text-shadow 0.3s;
+        }
+
+        .footer .socials a:hover {
+            color: var(--neon-cyan);
+            text-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+        }
+
+        .footer .heart {
+            color: var(--neon-pink);
+            animation: pulse-heart 1.2s ease-in-out infinite;
             display: inline-block;
-            padding: 0.1rem 0.6rem;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 500;
         }
-        .status-badge.idle {
-            background: #21262d;
-            color: #8b949e;
-        }
-        .status-badge.loading {
-            background: #1f3a5f;
-            color: #58a6ff;
-            animation: pulse 1s infinite;
-        }
-        .status-badge.success {
-            background: #1b3a2c;
-            color: #3fb950;
-        }
-        .status-badge.error {
-            background: #3d1a1a;
-            color: #f85149;
-        }
-        @keyframes pulse {
+
+        @keyframes pulse-heart {
             0%,
             100% {
-                opacity: 1;
+                transform: scale(1);
             }
             50% {
-                opacity: 0.5;
+                transform: scale(1.2);
             }
         }
-        .token-display {
-            font-family: monospace;
-            font-size: 0.75rem;
-            color: #58a6ff;
-            background: #0d1117;
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            border: 1px solid #21262d;
-            word-break: break-all;
+
+        /* ---- Responsive ---- */
+        @media (max-width: 640px) {
+            .app-container {
+                padding: 1.5rem 1.2rem;
+            }
+            .brand h1 {
+                font-size: 1.4rem;
+            }
+            .logo {
+                width: 56px;
+                height: 56px;
+            }
+            .logo img {
+                width: 40px;
+                height: 40px;
+            }
         }
     </style>
 </head>
 <body>
 
-    <h1>🧩 GrishteSync · Vanilla Client</h1>
-    <div class="subtitle">
-        AI code generation · editing · review · deployment to GitHub &amp; Hugging Face
+    <div class="app-container">
+
+        <!-- ============================================================ -->
+        <!-- HEADER: Logo + Brand                                          -->
+        <!-- ============================================================ -->
+        <header class="header">
+            <div class="logo-wrapper">
+                <div class="logo">
+                    <img src="https://i.ibb.co/RGmb4FKk/1781072041102.png" alt="GrishteSync Logo" />
+                </div>
+            </div>
+            <div class="brand">
+                <h1>CodeForge</h1>
+                <div class="tagline">
+                    <span></span> AI Code Arena · Generate · Run · Dominate
+                </div>
+            </div>
+        </header>
+
+        <!-- ============================================================ -->
+        <!-- CARD: Generate Code                                           -->
+        <!-- ============================================================ -->
+        <div class="card">
+            <h2>⚡ Generate <span class="badge">POST /api/generate</span></h2>
+            <div class="flex">
+                <input id="genPrompt" type="text" value="Create a Python script that prints a random fact about space" />
+                <button id="genBtn" class="primary no-grow">🚀 Forge</button>
+            </div>
+            <div class="log" id="genLog">⚡ No token required — describe your dream code.</div>
+
+            <!-- Generated Files Display -->
+            <div id="generatedFilesContainer" style="display:none;" class="generated-files">
+                <div class="file-tabs" id="fileTabs"></div>
+                <div class="file-header">
+                    <span style="font-size:0.7rem;color:var(--text-dim);">📄 <span id="currentFileName">script.py</span></span>
+                    <button id="runFileBtn" class="run-btn" style="display:none;">▶ Run</button>
+                </div>
+                <pre id="fileContent">// Select a file to view its content</pre>
+                <div id="runOutput" class="output-box" style="display:none;"></div>
+                <button id="downloadBtn" class="secondary" style="margin-top:0.75rem;">📦 Download ZIP</button>
+            </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- FOOTER                                                        -->
+        <!-- ============================================================ -->
+        <footer class="footer">
+            <span>© 2025 <a href="https://github.com/suryasticsai" style="color:inherit;text-decoration:none;">Suryasticsai</a></span>
+            <span>
+                Built with <span class="heart">❤️</span> · Powered by Groq &amp; Pyodide
+            </span>
+            <div class="socials">
+                <a href="https://github.com/suryasticsai/grishtesync-backend" target="_blank">GitHub</a>
+                <a href="https://suryasticsai.github.io/GrishteSync" target="_blank">GrishteSync</a>
+            </div>
+        </footer>
     </div>
 
     <!-- ============================================================ -->
-    <!-- CARD: Authentication                                          -->
-    <!-- ============================================================ -->
-    <div class="card">
-        <h2>
-            🔐 Authentication
-            <span id="authStatus" class="status-badge idle">Not logged in</span>
-        </h2>
-        <div class="flex">
-            <button id="loginBtn" class="primary">🔑 Login with GitHub</button>
-            <button id="logoutBtn" class="danger">🚪 Logout</button>
-            <span style="font-size:0.85rem;color:#8b949e;margin-left:0.5rem;" id="userDisplay"></span>
-        </div>
-        <div class="log" id="authLog">→ Log in to the main app first to share the token automatically.</div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- CARD: Manual Token Input (fallback)                          -->
-    <!-- ============================================================ -->
-    <div class="card">
-        <h2>🔑 Manual Token Entry <span class="badge">fallback</span></h2>
-        <p style="font-size:0.85rem;color:#8b949e;margin-bottom:0.75rem;">
-            If you haven't logged into the main app, paste your token here.
-        </p>
-        <div class="flex">
-            <input id="manualTokenInput" type="text" placeholder="Paste your GitHub token here..." style="flex:1;" />
-            <button id="manualTokenBtn" class="primary">Set Token</button>
-            <button id="clearTokenBtn" class="danger">Clear</button>
-        </div>
-        <div class="log" id="manualTokenLog">💡 No token set.</div>
-        <div id="tokenPreview" style="margin-top:0.5rem;display:none;">
-            <span style="font-size:0.75rem;color:#8b949e;">Current token:</span>
-            <span class="token-display" id="tokenDisplay"></span>
-        </div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- CARD: Health Check                                             -->
-    <!-- ============================================================ -->
-    <div class="card">
-        <h2>💚 Health Check <span class="badge">GET /</span></h2>
-        <div class="flex">
-            <button id="healthBtn">Check Backend</button>
-            <span id="healthResult" style="font-size:0.85rem;color:#8b949e;">Not checked</span>
-        </div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- CARD: Generate Code                                           -->
-    <!-- ============================================================ -->
-    <div class="card">
-        <h2>🤖 Generate Code <span class="badge">POST /api/generate</span></h2>
-        <div class="row">
-            <div style="flex:2;">
-                <input id="genPrompt" type="text" value="Create a Python script that fetches weather from an API" />
-            </div>
-            <div style="flex:0;">
-                <button id="genBtn" class="primary">Generate</button>
-            </div>
-        </div>
-        <pre id="genOutput">// Generated files will appear here ...</pre>
-        <div class="log" id="genLog">⚡ No token needed for generation.</div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- CARD: Code Review                                             -->
-    <!-- ============================================================ -->
-    <div class="card">
-        <h2>🔎 Code Review <span class="badge">POST /api/review</span></h2>
-        <div class="row">
-            <div style="flex:2;">
-                <textarea id="reviewInput">print("hello world")</textarea>
-            </div>
-            <div style="flex:0;">
-                <button id="reviewBtn">Review</button>
-            </div>
-        </div>
-        <pre id="reviewOutput">// Review results ...</pre>
-        <div class="log" id="reviewLog">⚡ No token needed for review.</div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- CARD: Deploy to GitHub (requires auth)                        -->
-    <!-- ============================================================ -->
-    <div class="card">
-        <h2>📦 Deploy to GitHub <span class="badge red">requires auth</span></h2>
-        <div class="row">
-            <div style="flex:1;">
-                <input id="deployRepoName" type="text" value="grishte-test-app" placeholder="repo_name" />
-            </div>
-            <div style="flex:1;">
-                <input id="deployVersion" type="text" value="0.0.1" placeholder="version" />
-            </div>
-            <div style="flex:0;">
-                <button id="deployBtn" class="primary">🚀 Deploy</button>
-            </div>
-        </div>
-        <pre id="deployOutput">// Deployment result ...</pre>
-        <div class="log" id="deployLog">🔑 Token will be auto‑picked from localStorage if you logged into the main app.</div>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- SCRIPT: Load the client and wire everything up                -->
+    <!-- SCRIPT: Import client, Pyodide, wire everything               -->
     <!-- ============================================================ -->
     <script type="module">
         // --------------------------------------------------------------
         // 1. IMPORT THE CLIENT FROM CDN
         // --------------------------------------------------------------
         import {
-            healthCheck,
             generateCode,
-            reviewCode,
-            deployToGitHub,
-            getGitHubLoginUrl,
-            captureAuthTokenFromUrl,
-            setAuthToken,
-            getAuthToken,
-            clearAuthToken,
-            isAuthenticated,
             on,
-            logout,
-            GrishteSyncError,
         } from "https://cdn.jsdelivr.net/gh/suryasticsai/grishtesync-backend@main/static/grishtesync-client.js";
 
         // --------------------------------------------------------------
         // 2. GRAB DOM REFS
         // --------------------------------------------------------------
         const $ = (id) => document.getElementById(id);
-        const authStatus = $('authStatus');
-        const userDisplay = $('userDisplay');
-        const authLog = $('authLog');
-
-        const healthBtn = $('healthBtn');
-        const healthResult = $('healthResult');
-
         const genBtn = $('genBtn');
         const genPrompt = $('genPrompt');
-        const genOutput = $('genOutput');
         const genLog = $('genLog');
+        const generatedFilesContainer = $('generatedFilesContainer');
+        const fileTabs = $('fileTabs');
+        const fileContent = $('fileContent');
+        const currentFileName = $('currentFileName');
+        const downloadBtn = $('downloadBtn');
+        const runFileBtn = $('runFileBtn');
+        const runOutput = $('runOutput');
 
-        const reviewBtn = $('reviewBtn');
-        const reviewInput = $('reviewInput');
-        const reviewOutput = $('reviewOutput');
-        const reviewLog = $('reviewLog');
-
-        const deployBtn = $('deployBtn');
-        const deployRepoName = $('deployRepoName');
-        const deployVersion = $('deployVersion');
-        const deployOutput = $('deployOutput');
-        const deployLog = $('deployLog');
-
-        const loginBtn = $('loginBtn');
-        const logoutBtn = $('logoutBtn');
-
-        // Manual token elements
-        const manualTokenInput = $('manualTokenInput');
-        const manualTokenBtn = $('manualTokenBtn');
-        const clearTokenBtn = $('clearTokenBtn');
-        const manualTokenLog = $('manualTokenLog');
-        const tokenPreview = $('tokenPreview');
-        const tokenDisplay = $('tokenDisplay');
+        let currentFiles = {};
+        let currentFile = '';
+        let pyodide = null;
 
         // --------------------------------------------------------------
-        // 3. EVENT BUS — show loading states automatically
+        // 3. LOAD PYODIDE (embedded Python runtime)
         // --------------------------------------------------------------
-        const loadingElements = new Map();
+        async function loadPyodideRuntime() {
+            if (pyodide) return pyodide;
+            genLog.innerHTML = '⏳ Loading Python runtime (Pyodide) ...';
+            try {
+                pyodide = await globalThis.loadPyodide({
+                    indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.1/full/',
+                });
+                genLog.innerHTML += '<br/><span class="ok">✅ Python runtime ready!</span>';
+                return pyodide;
+            } catch (err) {
+                genLog.innerHTML += `<br/><span class="err">❌ Failed to load Pyodide: ${err.message}</span>`;
+                return null;
+            }
+        }
 
+        // Load Pyodide in the background
+        loadPyodideRuntime();
+
+        // --------------------------------------------------------------
+        // 4. EVENT BUS — loading states
+        // --------------------------------------------------------------
         function setLoading(id, isLoading) {
             const el = $(id);
             if (!el) return;
@@ -392,140 +642,31 @@
             el.textContent = isLoading ? '⏳ Loading...' : el.dataset.original || el.textContent;
         }
 
-        // Store original button texts
-        [healthBtn, genBtn, reviewBtn, deployBtn].forEach((btn) => {
+        [genBtn].forEach((btn) => {
             if (btn) btn.dataset.original = btn.textContent;
         });
 
         on('start', (payload) => {
-            const map = {
-                '/': healthBtn,
-                '/api/generate': genBtn,
-                '/api/review': reviewBtn,
-                '/api/deploy': deployBtn,
-            };
+            const map = { '/api/generate': genBtn };
             const btn = map[payload.endpoint];
             if (btn) setLoading(btn.id, true);
         });
 
         on('end', (payload) => {
-            const map = {
-                '/': healthBtn,
-                '/api/generate': genBtn,
-                '/api/review': reviewBtn,
-                '/api/deploy': deployBtn,
-            };
+            const map = { '/api/generate': genBtn };
             const btn = map[payload.endpoint];
             if (btn) setLoading(btn.id, false);
         });
 
         on('error', (err) => {
-            // Re-enable any buttons that might be stuck
-            [healthBtn, genBtn, reviewBtn, deployBtn].forEach((btn) => {
+            [genBtn].forEach((btn) => {
                 if (btn) setLoading(btn.id, false);
             });
             console.error('Global error:', err);
         });
 
         // --------------------------------------------------------------
-        // 4. AUTH — capture token from URL OR localStorage
-        // --------------------------------------------------------------
-        function updateManualTokenStatus() {
-            const token = getAuthToken();
-            if (token) {
-                manualTokenLog.innerHTML = `<span class="ok">✅ Token is set (starts with ${token.substring(0, 8)}...)</span>`;
-                tokenPreview.style.display = 'block';
-                tokenDisplay.textContent = token.substring(0, 20) + '...';
-            } else {
-                manualTokenLog.innerHTML = '💡 No token set.';
-                tokenPreview.style.display = 'none';
-            }
-        }
-
-        function updateAuthUI() {
-            const token = getAuthToken();
-            if (token) {
-                authStatus.textContent = '✅ Authenticated';
-                authStatus.className = 'status-badge success';
-                userDisplay.textContent = '🔑 Token present';
-                authLog.innerHTML = '<span class="ok">✅ You are logged in. Deployments will work.</span>';
-                deployLog.innerHTML = '✅ Ready to deploy!';
-            } else {
-                authStatus.textContent = 'Not logged in';
-                authStatus.className = 'status-badge idle';
-                userDisplay.textContent = '';
-                authLog.innerHTML = '→ Log in to the main app first to share the token automatically.';
-                deployLog.innerHTML = '🔑 Token will be auto‑picked from localStorage if you logged into the main app.';
-            }
-            updateManualTokenStatus();
-        }
-
-        // On page load: first try URL (if OAuth redirected directly here)
-        let capturedToken = captureAuthTokenFromUrl();
-        if (capturedToken) {
-            authLog.innerHTML = `<span class="ok">✅ Captured token from URL and stored it!</span>`;
-        } else {
-            // No token in URL — check if we already have one in localStorage
-            const existingToken = getAuthToken();
-            if (existingToken) {
-                authLog.innerHTML = `<span class="ok">✅ Found existing token in localStorage (from main app).</span>`;
-            }
-        }
-        updateAuthUI();
-
-        // Login button — redirects to the OAuth flow (which goes to the main app)
-        loginBtn.addEventListener('click', () => {
-            window.location.href = getGitHubLoginUrl();
-        });
-
-        // Logout button
-        logoutBtn.addEventListener('click', () => {
-            logout();
-            updateAuthUI();
-            authLog.innerHTML = '<span class="err">🔴 Logged out. Token cleared.</span>';
-        });
-
-        // --------------------------------------------------------------
-        // 5. MANUAL TOKEN INPUT (fallback)
-        // --------------------------------------------------------------
-        manualTokenBtn.addEventListener('click', () => {
-            const token = manualTokenInput.value.trim();
-            if (!token) {
-                manualTokenLog.innerHTML = '<span class="err">❌ Please paste a valid token.</span>';
-                return;
-            }
-            setAuthToken(token);
-            manualTokenLog.innerHTML = `<span class="ok">✅ Token set successfully!</span>`;
-            manualTokenInput.value = '';
-            updateAuthUI();
-        });
-
-        clearTokenBtn.addEventListener('click', () => {
-            clearAuthToken();
-            manualTokenLog.innerHTML = '<span class="err">🔴 Token cleared.</span>';
-            updateAuthUI();
-        });
-
-        manualTokenInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') manualTokenBtn.click();
-        });
-
-        // --------------------------------------------------------------
-        // 6. HEALTH CHECK
-        // --------------------------------------------------------------
-        healthBtn.addEventListener('click', async () => {
-            try {
-                const result = await healthCheck();
-                healthResult.textContent = `✅ ${result.status || 'OK'}`;
-                healthResult.style.color = '#3fb950';
-            } catch (err) {
-                healthResult.textContent = `❌ ${err.message}`;
-                healthResult.style.color = '#f85149';
-            }
-        });
-
-        // --------------------------------------------------------------
-        // 7. GENERATE CODE
+        // 5. GENERATE CODE
         // --------------------------------------------------------------
         genBtn.addEventListener('click', async () => {
             const prompt = genPrompt.value.trim();
@@ -533,105 +674,178 @@
                 genLog.innerHTML = '<span class="err">❌ Please enter a prompt.</span>';
                 return;
             }
-            genOutput.textContent = '⏳ Generating ...';
-            genLog.innerHTML = '⏳ Calling /api/generate ...';
+
+            genLog.innerHTML = '⏳ Forging code...';
+            generatedFilesContainer.style.display = 'none';
+            runOutput.style.display = 'none';
+            runFileBtn.style.display = 'none';
 
             try {
                 const result = await generateCode(prompt);
-                genOutput.textContent = JSON.stringify(result, null, 2);
-                const fileCount = Object.keys(result.files || {}).length;
-                genLog.innerHTML = `<span class="ok">✅ Generated ${fileCount} files in ${result.generate_time || '?'}s.</span>`;
+                currentFiles = result.files || {};
+                const fileCount = Object.keys(currentFiles).length;
+
+                if (fileCount === 0) {
+                    genLog.innerHTML = '<span class="err">❌ No files were forged.</span>';
+                    return;
+                }
+
+                renderFiles(currentFiles);
+                generatedFilesContainer.style.display = 'block';
+                genLog.innerHTML = `<span class="ok">✅ Forged ${fileCount} files in ${result.generate_time || '?'}s.</span>`;
             } catch (err) {
-                genOutput.textContent = `❌ Error: ${err.message}`;
                 genLog.innerHTML = `<span class="err">❌ ${err.message}</span>`;
             }
         });
 
         // --------------------------------------------------------------
-        // 8. CODE REVIEW
+        // 6. RENDER FILES & RUNNER
         // --------------------------------------------------------------
-        reviewBtn.addEventListener('click', async () => {
-            const code = reviewInput.value;
-            if (!code) {
-                reviewLog.innerHTML = '<span class="err">❌ Please enter some code to review.</span>';
-                return;
-            }
-            reviewOutput.textContent = '⏳ Reviewing ...';
-            reviewLog.innerHTML = '⏳ Calling /api/review ...';
+        function renderFiles(files) {
+            const fileNames = Object.keys(files);
+            if (fileNames.length === 0) return;
 
-            try {
-                const files = { 'script.py': code };
-                const result = await reviewCode(files);
-                reviewOutput.textContent = JSON.stringify(result, null, 2);
-                if (result.status === 'success') {
-                    reviewLog.innerHTML = `<span class="ok">✅ No issues found!</span>`;
-                } else {
-                    reviewLog.innerHTML = `<span class="err">⚠️ ${result.issues?.length || 'Some'} issues found.</span>`;
+            fileTabs.innerHTML = '';
+
+            fileNames.forEach((name, index) => {
+                const tab = document.createElement('span');
+                tab.className = 'file-tab' + (index === 0 ? ' active' : '');
+                const isPython = name.endsWith('.py');
+                tab.innerHTML = `${name} ${isPython ? '🐍' : '📄'}`;
+                tab.dataset.filename = name;
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.file-tab').forEach((t) => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    showFile(name);
+                });
+                fileTabs.appendChild(tab);
+            });
+
+            // Show first file
+            const firstFile = fileNames[0];
+            showFile(firstFile);
+        }
+
+        function showFile(filename) {
+            currentFile = filename;
+            currentFileName.textContent = filename;
+            fileContent.textContent = currentFiles[filename];
+            runOutput.style.display = 'none';
+            runOutput.innerHTML = '';
+
+            // Show run button only for Python files
+            if (filename.endsWith('.py')) {
+                runFileBtn.style.display = 'inline-block';
+            } else {
+                runFileBtn.style.display = 'none';
+            }
+        }
+
+        // --------------------------------------------------------------
+        // 7. RUN PYTHON CODE (via Pyodide)
+        // --------------------------------------------------------------
+        runFileBtn.addEventListener('click', async () => {
+            if (!currentFile || !currentFiles[currentFile]) return;
+
+            const code = currentFiles[currentFile];
+            runOutput.style.display = 'block';
+            runOutput.innerHTML = '⏳ Running ...';
+
+            if (!pyodide) {
+                pyodide = await loadPyodideRuntime();
+                if (!pyodide) {
+                    runOutput.innerHTML = '<span class="stderr">❌ Failed to load Python runtime.</span>';
+                    return;
                 }
-            } catch (err) {
-                reviewOutput.textContent = `❌ Error: ${err.message}`;
-                reviewLog.innerHTML = `<span class="err">❌ ${err.message}</span>`;
             }
-        });
-
-        // --------------------------------------------------------------
-        // 9. DEPLOY TO GITHUB (requires auth)
-        // --------------------------------------------------------------
-        deployBtn.addEventListener('click', async () => {
-            const token = getAuthToken();
-            if (!token) {
-                deployOutput.textContent = '❌ Error: No token found. Please log into the main app first.';
-                deployLog.innerHTML = '<span class="err">❌ Missing GitHub token. Log in on the main app, or paste a token manually.</span>';
-                return;
-            }
-
-            const repoName = deployRepoName.value.trim();
-            if (!repoName) {
-                deployOutput.textContent = '❌ Error: Please enter a repository name.';
-                deployLog.innerHTML = '<span class="err">❌ repo_name is required.</span>';
-                return;
-            }
-
-            const version = deployVersion.value.trim() || '0.0.1';
-            const files = {
-                'app.py': `# Created with GrishteSync\nprint("Hello from ${repoName}!")`,
-                'requirements.txt': 'flask\npython-dotenv',
-            };
-
-            deployOutput.textContent = '⏳ Deploying to GitHub ...';
-            deployLog.innerHTML = '⏳ Creating repo, pushing code, opening PR ...';
 
             try {
-                const result = await deployToGitHub(repoName, files, version, token);
-                deployOutput.textContent = JSON.stringify(result, null, 2);
-                deployLog.innerHTML = `<span class="ok">✅ Deployed! PR: ${result.pr_url || 'See repo'}</span>`;
+                pyodide.runPython(`
+import sys
+from io import StringIO
+sys.stdout = StringIO()
+sys.stderr = StringIO()
+                `);
+
+                try {
+                    pyodide.runPython(code);
+                } catch (err) {
+                    // error captured in stderr
+                }
+
+                const stdout = pyodide.runPython('sys.stdout.getvalue()');
+                const stderr = pyodide.runPython('sys.stderr.getvalue()');
+
+                let outputHtml = '';
+                if (stdout) outputHtml += `<div class="stdout">${escapeHtml(stdout)}</div>`;
+                if (stderr) outputHtml += `<div class="stderr">${escapeHtml(stderr)}</div>`;
+                if (!stdout && !stderr) outputHtml = '<span style="color:var(--text-dim);">(No output)</span>';
+
+                runOutput.innerHTML = outputHtml;
+
+                pyodide.runPython(`
+sys.stdout = sys.__stdout__
+sys.stderr = sys.__stderr__
+                `);
             } catch (err) {
-                deployOutput.textContent = `❌ Error: ${err.message}`;
-                deployLog.innerHTML = `<span class="err">❌ ${err.message}</span>`;
+                runOutput.innerHTML = `<span class="stderr">❌ Error: ${escapeHtml(err.message)}</span>`;
             }
         });
 
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         // --------------------------------------------------------------
-        // 10. EXTRA: Keyboard shortcut (Enter to generate)
+        // 8. DOWNLOAD ZIP
         // --------------------------------------------------------------
+        downloadBtn.addEventListener('click', async () => {
+            if (Object.keys(currentFiles).length === 0) {
+                alert('No files to download.');
+                return;
+            }
+
+            try {
+                const JSZip = (await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm')).default;
+                const zip = new JSZip();
+
+                Object.entries(currentFiles).forEach(([name, content]) => {
+                    zip.file(name, content);
+                });
+
+                const blob = await zip.generateAsync({ type: 'blob' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'codeforge-generated.zip';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                // Fallback: download individually
+                Object.entries(currentFiles).forEach(([name, content]) => {
+                    const blob = new Blob([content], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = name;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                });
+            }
+        });
+
+        // Enter key to generate
         genPrompt.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') genBtn.click();
         });
 
-        console.log('🚀 GrishteSync client ready!');
-        console.log('📚 Available methods:', {
-            healthCheck,
-            generateCode,
-            reviewCode,
-            deployToGitHub,
-            getGitHubLoginUrl,
-            captureAuthTokenFromUrl,
-            getAuthToken,
-            setAuthToken,
-            clearAuthToken,
-            isAuthenticated,
-            logout,
-        });
+        console.log('🚀 CodeForge · AI Code Arena ready!');
     </script>
 
 </body>
