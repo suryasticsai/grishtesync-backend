@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CodeForge · AI Code Arena</title>
+    <title>GrishteSync · Prompt2Prod</title>
     <!-- Favicon (GrishteSync logo) -->
     <link rel="icon" type="image/png" href="https://i.ibb.co/RGmb4FKk/1781072041102.png" />
     <!-- Pyodide CDN -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js"></script>
-    <!-- Google Font (Orbitron for gamified feel) -->
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&display=swap" rel="stylesheet" />
+    <!-- Google Fonts: Orbitron for headings, Inter for body -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
     <style>
         /* ================================================================
-               GLOBAL RESET & BASE – Gamified Dark Neon
+               GLOBAL RESET & BASE – Dark Space / Day toggle
             ================================================================ */
         * {
             margin: 0;
@@ -21,50 +21,134 @@
         }
 
         :root {
-            --bg-deep: #0b0b1a;
-            --bg-card: rgba(20, 20, 50, 0.7);
-            --neon-cyan: #00f0ff;
-            --neon-purple: #b44aff;
-            --neon-pink: #ff3ea5;
-            --neon-green: #39ff14;
-            --neon-orange: #ff8c00;
-            --text-main: #e0e0ff;
-            --text-dim: #8888bb;
-            --glow-cyan: 0 0 30px rgba(0, 240, 255, 0.3);
-            --glow-purple: 0 0 30px rgba(180, 74, 255, 0.3);
-            --border-neon: 1px solid rgba(0, 240, 255, 0.25);
+            --bg-primary: #070b17;
+            --bg-secondary: #0f1a2b;
+            --bg-card: rgba(15, 25, 45, 0.75);
+            --text-primary: #e8edf5;
+            --text-secondary: #8b9bb5;
+            --neon-cyan: #00d4ff;
+            --neon-purple: #a78bfa;
+            --neon-pink: #f472b6;
+            --neon-green: #34d399;
+            --neon-orange: #fb923c;
+            --glow-cyan: 0 0 40px rgba(0, 212, 255, 0.25);
+            --border-neon: 1px solid rgba(0, 212, 255, 0.15);
+            --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.6);
+            --transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+
+        /* ---- Day theme (triggered by logo click) ---- */
+        body.day-mode {
+            --bg-primary: #f0f4fa;
+            --bg-secondary: #dce4ec;
+            --bg-card: rgba(255, 255, 255, 0.7);
+            --text-primary: #1a2332;
+            --text-secondary: #3d4a5c;
+            --neon-cyan: #0077be;
+            --neon-purple: #6d4fc9;
+            --neon-pink: #d9468b;
+            --neon-green: #0d9e6c;
+            --neon-orange: #d97706;
+            --glow-cyan: 0 0 40px rgba(0, 119, 190, 0.15);
+            --border-neon: 1px solid rgba(0, 119, 190, 0.2);
+            --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.1);
         }
 
         body {
-            background: var(--bg-deep);
-            color: var(--text-main);
-            font-family: 'Orbitron', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Inter', -apple-system, sans-serif;
             min-height: 100vh;
             padding: 2rem 1.5rem;
             background-image:
-                radial-gradient(circle at 20% 30%, rgba(0, 240, 255, 0.05) 0%, transparent 40%),
-                radial-gradient(circle at 80% 70%, rgba(180, 74, 255, 0.05) 0%, transparent 40%),
-                radial-gradient(circle at 50% 50%, rgba(255, 62, 165, 0.03) 0%, transparent 60%);
+                radial-gradient(circle at 20% 30%, rgba(0, 212, 255, 0.04) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(167, 139, 250, 0.04) 0%, transparent 50%);
             display: flex;
             justify-content: center;
             align-items: flex-start;
-            /* Animated grid overlay */
-            background-image:
-                linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
-            background-size: 40px 40px;
-            animation: grid-scroll 20s linear infinite;
+            transition: var(--transition);
+            position: relative;
         }
 
-        @keyframes grid-scroll {
+        /* ---- Animated background particles (stars) ---- */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                radial-gradient(2px 2px at 20px 30px, #eee, transparent),
+                radial-gradient(2px 2px at 40px 70px, rgba(255, 255, 255, 0.8), transparent),
+                radial-gradient(2px 2px at 50px 160px, #ddd, transparent),
+                radial-gradient(2px 2px at 90px 40px, rgba(255, 255, 255, 0.6), transparent),
+                radial-gradient(2px 2px at 130px 80px, #fff, transparent),
+                radial-gradient(2px 2px at 160px 30px, rgba(255, 255, 255, 0.7), transparent);
+            background-size: 200px 200px;
+            background-repeat: repeat;
+            opacity: 0.5;
+            pointer-events: none;
+            z-index: 0;
+            transition: opacity 0.8s ease;
+        }
+
+        body.day-mode::before {
+            opacity: 0.1;
+            background-image: radial-gradient(2px 2px at 20px 30px, #8ba0b8, transparent),
+                radial-gradient(2px 2px at 40px 70px, #6a7f96, transparent);
+        }
+
+        /* ---- Clouds (day mode) ---- */
+        .clouds {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
+            opacity: 0;
+            transition: opacity 1.5s ease;
+        }
+        body.day-mode .clouds {
+            opacity: 1;
+        }
+        .cloud {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.7);
+            border-radius: 50%;
+            filter: blur(40px);
+            animation: float-cloud 20s linear infinite;
+        }
+        .cloud:nth-child(1) {
+            width: 300px;
+            height: 100px;
+            top: 10%;
+            left: -10%;
+            animation-duration: 25s;
+        }
+        .cloud:nth-child(2) {
+            width: 400px;
+            height: 120px;
+            top: 30%;
+            left: 30%;
+            animation-duration: 30s;
+            animation-delay: -5s;
+        }
+        .cloud:nth-child(3) {
+            width: 250px;
+            height: 80px;
+            top: 60%;
+            left: 60%;
+            animation-duration: 22s;
+            animation-delay: -10s;
+        }
+        @keyframes float-cloud {
             0% {
-                background-position: 0 0;
+                transform: translateX(-100px);
             }
             100% {
-                background-position: 40px 40px;
+                transform: translateX(calc(100vw + 200px));
             }
         }
 
+        /* ---- Main container ---- */
         .app-container {
             max-width: 1100px;
             width: 100%;
@@ -74,12 +158,14 @@
             border-radius: 40px;
             padding: 2.5rem 2.5rem 1.5rem;
             border: var(--border-neon);
-            box-shadow: var(--glow-cyan), inset 0 0 80px rgba(0, 240, 255, 0.03);
+            box-shadow: var(--glow-cyan), var(--shadow-card);
             position: relative;
+            z-index: 1;
+            transition: var(--transition);
             overflow: hidden;
-            transition: box-shadow 0.4s ease;
         }
 
+        /* ---- Glow ring animation ---- */
         .app-container::before {
             content: '';
             position: absolute;
@@ -87,11 +173,10 @@
             left: -50%;
             width: 200%;
             height: 200%;
-            background: conic-gradient(from 0deg, transparent, rgba(0, 240, 255, 0.03), transparent, rgba(180, 74, 255, 0.03), transparent);
+            background: conic-gradient(from 0deg, transparent, rgba(0, 212, 255, 0.03), transparent, rgba(167, 139, 250, 0.03), transparent);
             animation: spin 30s linear infinite;
             pointer-events: none;
         }
-
         @keyframes spin {
             to {
                 transform: rotate(360deg);
@@ -99,36 +184,40 @@
         }
 
         /* ================================================================
-               HEADER – Logo + Brand (Gamified)
+               HEADER – Centered Logo + Brand
             ================================================================ */
         .header {
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 1.5rem;
-            margin-bottom: 1.5rem;
+            text-align: center;
+            margin-bottom: 2rem;
             position: relative;
             z-index: 2;
-            flex-wrap: wrap;
         }
 
         .logo-wrapper {
             position: relative;
-            flex-shrink: 0;
+            cursor: pointer;
+            margin-bottom: 0.5rem;
+            transition: transform 0.6s ease;
+        }
+        .logo-wrapper:hover {
+            transform: scale(1.02);
         }
 
         .logo-wrapper::after {
             content: '';
             position: absolute;
-            inset: -3px;
+            inset: -6px;
             border-radius: 50%;
             background: conic-gradient(from 0deg, var(--neon-cyan), var(--neon-purple), var(--neon-pink), var(--neon-cyan));
-            padding: 2px;
+            padding: 3px;
             -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
             -webkit-mask-composite: xor;
             mask-composite: exclude;
-            animation: spin-glow 4s linear infinite;
+            animation: spin-glow 6s linear infinite;
         }
-
         @keyframes spin-glow {
             to {
                 transform: rotate(360deg);
@@ -136,8 +225,8 @@
         }
 
         .logo {
-            width: 72px;
-            height: 72px;
+            width: 96px;
+            height: 96px;
             border-radius: 50%;
             background: #0a0a1a;
             display: flex;
@@ -145,360 +234,418 @@
             justify-content: center;
             position: relative;
             z-index: 1;
-            border: 1px solid rgba(0, 240, 255, 0.2);
+            border: 2px solid rgba(0, 212, 255, 0.2);
             overflow: hidden;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            transition: transform 0.6s ease, box-shadow 0.6s ease;
         }
-
-        .logo:hover {
-            transform: scale(1.08) rotate(-5deg);
-            box-shadow: 0 0 40px rgba(0, 240, 255, 0.3);
-        }
-
         .logo img {
-            width: 54px;
-            height: 54px;
+            width: 72px;
+            height: 72px;
             object-fit: contain;
             border-radius: 50%;
-            filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.4));
+            filter: drop-shadow(0 0 20px rgba(0, 212, 255, 0.3));
+            transition: transform 0.6s ease;
+        }
+        .logo-wrapper.rotated .logo {
+            transform: rotate(360deg) scale(1.1);
+            box-shadow: 0 0 60px rgba(0, 212, 255, 0.4);
         }
 
         .brand h1 {
-            font-size: 2rem;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 2.4rem;
             font-weight: 900;
+            letter-spacing: 4px;
             text-transform: uppercase;
-            letter-spacing: 3px;
             background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            text-shadow: 0 0 40px rgba(0, 240, 255, 0.2);
+            text-shadow: 0 0 40px rgba(0, 212, 255, 0.2);
             line-height: 1.2;
         }
-
         .brand .tagline {
-            font-size: 0.75rem;
-            letter-spacing: 2px;
-            color: var(--text-dim);
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1rem;
+            letter-spacing: 6px;
+            color: var(--text-secondary);
             text-transform: uppercase;
-            margin-top: 2px;
-            display: flex;
-            gap: 0.5rem;
-            align-items: center;
+            margin-top: 0.25rem;
+            font-weight: 400;
         }
-
         .brand .tagline span {
-            display: inline-block;
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: var(--neon-cyan);
-            box-shadow: 0 0 12px var(--neon-cyan);
-            animation: pulse-dot 1.5s ease-in-out infinite;
-        }
-
-        @keyframes pulse-dot {
-            0%,
-            100% {
-                opacity: 1;
-                transform: scale(1);
-            }
-            50% {
-                opacity: 0.3;
-                transform: scale(0.6);
-            }
+            color: var(--neon-cyan);
+            font-weight: 700;
         }
 
         /* ================================================================
-               CARDS – Glassmorphism with Neon borders
+               CARDS – Glassmorphism
             ================================================================ */
         .card {
-            background: rgba(12, 12, 35, 0.6);
+            background: rgba(12, 12, 35, 0.5);
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
             border-radius: 28px;
             padding: 1.75rem;
             margin-bottom: 1.75rem;
-            border: 1px solid rgba(0, 240, 255, 0.10);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+            border: 1px solid rgba(0, 212, 255, 0.08);
+            box-shadow: var(--shadow-card);
+            transition: border-color 0.3s, box-shadow 0.3s;
             position: relative;
             z-index: 2;
         }
-
         .card:hover {
-            border-color: rgba(0, 240, 255, 0.25);
-            box-shadow: var(--glow-cyan), 0 8px 32px rgba(0, 0, 0, 0.6);
+            border-color: rgba(0, 212, 255, 0.2);
+            box-shadow: var(--glow-cyan), var(--shadow-card);
         }
 
         .card h2 {
+            font-family: 'Orbitron', sans-serif;
             font-size: 1rem;
             font-weight: 600;
-            letter-spacing: 1.5px;
-            text-transform: uppercase;
+            letter-spacing: 2px;
             color: var(--neon-cyan);
-            margin-bottom: 1rem;
+            margin-bottom: 1.2rem;
             display: flex;
             align-items: center;
             gap: 0.75rem;
-            text-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.15);
         }
 
-        .card h2 .badge {
-            font-size: 0.55rem;
-            background: rgba(0, 240, 255, 0.12);
-            padding: 0.15rem 0.7rem;
-            border-radius: 40px;
-            color: var(--text-dim);
-            letter-spacing: 1px;
-            border: 1px solid rgba(0, 240, 255, 0.15);
+        /* ---- Prompt input area ---- */
+        .prompt-area {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
         }
-
-        /* ---- Inputs & Buttons (Neon gamified) ---- */
-        input,
-        textarea {
-            background: rgba(0, 0, 0, 0.5);
-            border: 1px solid rgba(0, 240, 255, 0.15);
-            color: var(--text-main);
-            padding: 0.7rem 1rem;
-            border-radius: 16px;
-            font-family: 'Orbitron', sans-serif;
-            font-size: 0.85rem;
-            width: 100%;
+        .prompt-area textarea {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(0, 212, 255, 0.15);
+            border-radius: 20px;
+            padding: 1rem 1.2rem;
+            font-family: 'Inter', sans-serif;
+            font-size: 1rem;
+            color: var(--text-primary);
+            min-height: 100px;
+            resize: vertical;
             transition: border-color 0.3s, box-shadow 0.3s;
             backdrop-filter: blur(4px);
+            width: 100%;
+            line-height: 1.6;
         }
-
-        input:focus,
-        textarea:focus {
+        .prompt-area textarea:focus {
             outline: none;
             border-color: var(--neon-cyan);
-            box-shadow: 0 0 25px rgba(0, 240, 255, 0.15);
+            box-shadow: 0 0 30px rgba(0, 212, 255, 0.1);
         }
-
-        button {
-            background: rgba(0, 240, 255, 0.08);
-            border: 1px solid rgba(0, 240, 255, 0.25);
-            color: var(--text-main);
-            padding: 0.6rem 1.4rem;
-            border-radius: 40px;
-            font-family: 'Orbitron', sans-serif;
-            font-weight: 600;
-            font-size: 0.8rem;
-            letter-spacing: 1px;
-            cursor: pointer;
-            transition: all 0.25s ease;
-            text-transform: uppercase;
-            backdrop-filter: blur(4px);
-            box-shadow: 0 0 15px rgba(0, 240, 255, 0.05);
-        }
-
-        button:hover {
-            background: rgba(0, 240, 255, 0.18);
-            border-color: var(--neon-cyan);
-            box-shadow: 0 0 35px rgba(0, 240, 255, 0.2);
-            transform: translateY(-2px);
-        }
-
-        button.primary {
-            background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(180, 74, 255, 0.2));
-            border-color: var(--neon-cyan);
-            color: #fff;
-            text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
-        }
-
-        button.primary:hover {
-            background: linear-gradient(135deg, rgba(0, 240, 255, 0.35), rgba(180, 74, 255, 0.35));
-            box-shadow: 0 0 50px rgba(0, 240, 255, 0.25);
-        }
-
-        button.run-btn {
-            background: rgba(57, 255, 20, 0.12);
-            border-color: rgba(57, 255, 20, 0.3);
-            color: var(--neon-green);
-            font-size: 0.7rem;
-            padding: 0.2rem 1rem;
-        }
-
-        button.run-btn:hover {
-            background: rgba(57, 255, 20, 0.25);
-            border-color: var(--neon-green);
-            box-shadow: 0 0 30px rgba(57, 255, 20, 0.2);
-        }
-
-        button.secondary {
-            background: rgba(180, 74, 255, 0.1);
-            border-color: rgba(180, 74, 255, 0.25);
-            color: var(--neon-purple);
-        }
-
-        button.secondary:hover {
-            background: rgba(180, 74, 255, 0.2);
-            border-color: var(--neon-purple);
-            box-shadow: 0 0 30px rgba(180, 74, 255, 0.2);
-        }
-
-        button:disabled {
-            opacity: 0.4;
-            pointer-events: none;
-            transform: none !important;
-        }
-
-        /* ---- File tabs (gamified pills) ---- */
-        .file-tabs {
+        .prompt-actions {
             display: flex;
             gap: 0.6rem;
             flex-wrap: wrap;
-            margin-bottom: 1rem;
-        }
-
-        .file-tab {
-            background: rgba(0, 0, 0, 0.4);
-            padding: 0.3rem 1rem;
-            border-radius: 40px;
-            font-size: 0.7rem;
-            letter-spacing: 0.5px;
-            cursor: pointer;
-            border: 1px solid rgba(0, 240, 255, 0.08);
-            color: var(--text-dim);
-            transition: all 0.2s;
-            display: flex;
             align-items: center;
-            gap: 0.4rem;
-            font-family: 'Orbitron', sans-serif;
         }
-
-        .file-tab.active {
-            background: rgba(0, 240, 255, 0.12);
+        .prompt-actions button {
+            background: rgba(0, 212, 255, 0.06);
+            border: 1px solid rgba(0, 212, 255, 0.15);
+            color: var(--text-secondary);
+            padding: 0.4rem 1.2rem;
+            border-radius: 30px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Inter', sans-serif;
+            backdrop-filter: blur(4px);
+        }
+        .prompt-actions button:hover {
+            background: rgba(0, 212, 255, 0.15);
             border-color: var(--neon-cyan);
-            color: var(--neon-cyan);
-            box-shadow: 0 0 20px rgba(0, 240, 255, 0.1);
-        }
-
-        .file-tab:hover {
-            border-color: rgba(0, 240, 255, 0.25);
             color: #fff;
         }
 
-        /* ---- Code output & runner ---- */
-        pre {
-            background: rgba(0, 0, 0, 0.6);
-            border: 1px solid rgba(0, 240, 255, 0.06);
-            border-radius: 20px;
-            padding: 1.2rem;
-            font-size: 0.8rem;
-            font-family: 'Courier New', monospace;
-            color: var(--text-main);
-            max-height: 400px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            word-break: break-word;
-            margin-top: 0.5rem;
-            box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.5);
+        .generate-btn {
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(167, 139, 250, 0.2));
+            border: 1px solid var(--neon-cyan);
+            color: #fff;
+            padding: 0.7rem 2rem;
+            border-radius: 40px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Orbitron', sans-serif;
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        .generate-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 40px rgba(0, 212, 255, 0.25);
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.3), rgba(167, 139, 250, 0.3));
+        }
+        .generate-btn:active {
+            transform: scale(0.96);
         }
 
-        .file-header {
+        /* ---- Suggestion chips ---- */
+        .suggestions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        .suggestion-chip {
+            background: rgba(0, 212, 255, 0.05);
+            border: 1px solid rgba(0, 212, 255, 0.1);
+            padding: 0.3rem 1rem;
+            border-radius: 30px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Inter', sans-serif;
+            backdrop-filter: blur(2px);
+        }
+        .suggestion-chip:hover {
+            background: rgba(0, 212, 255, 0.12);
+            border-color: var(--neon-cyan);
+            color: #fff;
+            transform: translateY(-1px);
+        }
+
+        /* ---- Generated code area ---- */
+        .code-panel {
+            margin-top: 1.5rem;
+            border-top: 1px solid rgba(0, 212, 255, 0.08);
+            padding-top: 1.2rem;
+            display: none;
+        }
+        .code-panel.visible {
+            display: block;
+        }
+        .code-panel .panel-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-top: 0.5rem;
+            cursor: pointer;
+            padding: 0.5rem 0;
+        }
+        .code-panel .panel-header h3 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--neon-cyan);
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .code-panel .panel-header .toggle-icon {
+            transition: transform 0.3s;
+        }
+        .code-panel .panel-header .toggle-icon.collapsed {
+            transform: rotate(-90deg);
         }
 
-        .output-box {
-            background: rgba(0, 0, 0, 0.7);
-            border: 1px solid rgba(0, 240, 255, 0.1);
+        .code-editor {
+            background: rgba(0, 0, 0, 0.4);
             border-radius: 20px;
-            padding: 1rem;
+            border: 1px solid rgba(0, 212, 255, 0.08);
+            overflow: hidden;
             margin-top: 0.75rem;
+            transition: max-height 0.4s ease, opacity 0.4s ease;
+            max-height: 600px;
+            opacity: 1;
+        }
+        .code-editor.collapsed {
+            max-height: 0 !important;
+            opacity: 0;
+            padding: 0;
+            margin: 0;
+            border: none;
+        }
+
+        .file-tabs {
+            display: flex;
+            gap: 0.4rem;
+            flex-wrap: wrap;
+            padding: 0.8rem 1rem 0.4rem;
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid rgba(0, 212, 255, 0.06);
+        }
+        .file-tab {
+            padding: 0.25rem 1rem;
+            border-radius: 30px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            border: 1px solid transparent;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+            background: transparent;
+            font-family: 'Inter', sans-serif;
+        }
+        .file-tab.active {
+            background: rgba(0, 212, 255, 0.12);
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+        }
+        .file-tab:hover {
+            color: #fff;
+            border-color: rgba(0, 212, 255, 0.2);
+        }
+
+        .editor-container {
+            padding: 0.8rem;
+        }
+        .editor-container textarea {
+            width: 100%;
+            min-height: 200px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(0, 212, 255, 0.06);
+            border-radius: 16px;
+            color: var(--text-primary);
             font-family: 'Courier New', monospace;
-            font-size: 0.8rem;
-            max-height: 200px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+            font-size: 0.85rem;
+            padding: 1rem;
+            resize: vertical;
+            transition: border-color 0.3s;
+            line-height: 1.6;
+        }
+        .editor-container textarea:focus {
+            outline: none;
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.05);
         }
 
-        .output-box .stdout {
-            color: var(--neon-green);
-        }
-        .output-box .stderr {
-            color: #ff4d4d;
-        }
-
-        .log {
-            color: var(--text-dim);
-            font-size: 0.7rem;
-            letter-spacing: 0.5px;
-            margin-top: 0.5rem;
-        }
-        .log .ok {
-            color: var(--neon-green);
-        }
-        .log .err {
-            color: #ff4d4d;
-        }
-
-        /* ---- Flex utilities ---- */
-        .flex {
+        .code-actions {
             display: flex;
             gap: 0.75rem;
             flex-wrap: wrap;
+            margin-top: 0.75rem;
             align-items: center;
         }
-        .flex>* {
-            flex: 1 1 auto;
+
+        .btn-3d {
+            position: relative;
+            display: inline-block;
+            padding: 0.6rem 1.6rem;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: #fff;
+            background: linear-gradient(145deg, #1a2a4a, #0d1a2e);
+            border: none;
+            border-radius: 40px;
+            cursor: pointer;
+            box-shadow: 0 6px 0 #0a121f, 0 8px 20px rgba(0, 0, 0, 0.4);
+            transition: all 0.08s ease;
+            transform: translateY(0);
         }
-        .flex .no-grow {
-            flex: 0 0 auto;
+        .btn-3d:active {
+            transform: translateY(6px);
+            box-shadow: 0 2px 0 #0a121f, 0 8px 20px rgba(0, 0, 0, 0.3);
+        }
+        .btn-3d.primary {
+            background: linear-gradient(145deg, #0077be, #005a8c);
+            box-shadow: 0 6px 0 #003d66, 0 8px 20px rgba(0, 119, 190, 0.3);
+        }
+        .btn-3d.primary:active {
+            box-shadow: 0 2px 0 #003d66, 0 8px 20px rgba(0, 119, 190, 0.2);
+        }
+        .btn-3d.success {
+            background: linear-gradient(145deg, #0d9e6c, #0a7a52);
+            box-shadow: 0 6px 0 #065c3e, 0 8px 20px rgba(13, 158, 108, 0.3);
+        }
+        .btn-3d.success:active {
+            box-shadow: 0 2px 0 #065c3e, 0 8px 20px rgba(13, 158, 108, 0.2);
+        }
+
+        /* ---- Deploy progress ---- */
+        .deploy-progress {
+            display: none;
+            margin-top: 1rem;
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 20px;
+            border-left: 3px solid var(--neon-cyan);
+        }
+        .deploy-progress.visible {
+            display: block;
+        }
+        .deploy-progress p {
+            margin: 0.3rem 0;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            opacity: 0;
+            animation: fade-in-up 0.5s forwards;
+        }
+        .deploy-progress p:nth-child(1) {
+            animation-delay: 0.2s;
+        }
+        .deploy-progress p:nth-child(2) {
+            animation-delay: 0.8s;
+        }
+        .deploy-progress p:nth-child(3) {
+            animation-delay: 1.4s;
+        }
+        .deploy-progress p:nth-child(4) {
+            animation-delay: 2.0s;
+        }
+        .deploy-progress p:nth-child(5) {
+            animation-delay: 2.6s;
+        }
+        @keyframes fade-in-up {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         /* ---- Footer ---- */
         .footer {
             margin-top: 2rem;
             padding-top: 1.2rem;
-            border-top: 1px solid rgba(0, 240, 255, 0.06);
+            border-top: 1px solid rgba(0, 212, 255, 0.06);
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
             gap: 0.5rem;
-            font-size: 0.6rem;
-            letter-spacing: 1px;
-            color: var(--text-dim);
-            text-transform: uppercase;
+            font-size: 0.7rem;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
             position: relative;
             z-index: 2;
         }
-
-        .footer .socials {
-            display: flex;
-            gap: 1.2rem;
-        }
-
-        .footer .socials a {
-            color: var(--text-dim);
-            text-decoration: none;
-            transition: color 0.3s, text-shadow 0.3s;
-        }
-
-        .footer .socials a:hover {
-            color: var(--neon-cyan);
-            text-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
-        }
-
         .footer .heart {
+            display: inline-block;
             color: var(--neon-pink);
             animation: pulse-heart 1.2s ease-in-out infinite;
-            display: inline-block;
         }
-
         @keyframes pulse-heart {
             0%,
             100% {
                 transform: scale(1);
             }
             50% {
-                transform: scale(1.2);
+                transform: scale(1.3);
             }
+        }
+        .footer a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+        .footer a:hover {
+            color: var(--neon-cyan);
         }
 
         /* ---- Responsive ---- */
@@ -507,61 +654,115 @@
                 padding: 1.5rem 1.2rem;
             }
             .brand h1 {
-                font-size: 1.4rem;
+                font-size: 1.8rem;
             }
             .logo {
-                width: 56px;
-                height: 56px;
+                width: 72px;
+                height: 72px;
             }
             .logo img {
-                width: 40px;
-                height: 40px;
+                width: 54px;
+                height: 54px;
             }
+            .prompt-area textarea {
+                min-height: 80px;
+            }
+            .suggestions {
+                gap: 0.3rem;
+            }
+        }
+
+        /* ---- Utilities ---- */
+        .hidden {
+            display: none !important;
+        }
+        .mt-2 {
+            margin-top: 0.75rem;
+        }
+        .flex-center {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
         }
     </style>
 </head>
 <body>
 
+    <!-- Clouds (day mode) -->
+    <div class="clouds">
+        <div class="cloud"></div>
+        <div class="cloud"></div>
+        <div class="cloud"></div>
+    </div>
+
     <div class="app-container">
 
         <!-- ============================================================ -->
-        <!-- HEADER: Logo + Brand                                          -->
+        <!-- HEADER: Centered Logo + Brand                                -->
         <!-- ============================================================ -->
         <header class="header">
-            <div class="logo-wrapper">
+            <div class="logo-wrapper" id="logoWrapper">
                 <div class="logo">
                     <img src="https://i.ibb.co/RGmb4FKk/1781072041102.png" alt="GrishteSync Logo" />
                 </div>
             </div>
             <div class="brand">
-                <h1>CodeForge</h1>
-                <div class="tagline">
-                    <span></span> AI Code Arena · Generate · Run · Dominate
-                </div>
+                <h1>GrishteSync</h1>
+                <div class="tagline">Prompt <span>→</span> Prod</div>
             </div>
         </header>
 
         <!-- ============================================================ -->
-        <!-- CARD: Generate Code                                           -->
+        <!-- CARD: Prompt Input                                           -->
         <!-- ============================================================ -->
         <div class="card">
-            <h2>⚡ Generate <span class="badge">POST /api/generate</span></h2>
-            <div class="flex">
-                <input id="genPrompt" type="text" value="Create a Python script that prints a random fact about space" />
-                <button id="genBtn" class="primary no-grow">🚀 Forge</button>
-            </div>
-            <div class="log" id="genLog">⚡ No token required — describe your dream code.</div>
-
-            <!-- Generated Files Display -->
-            <div id="generatedFilesContainer" style="display:none;" class="generated-files">
-                <div class="file-tabs" id="fileTabs"></div>
-                <div class="file-header">
-                    <span style="font-size:0.7rem;color:var(--text-dim);">📄 <span id="currentFileName">script.py</span></span>
-                    <button id="runFileBtn" class="run-btn" style="display:none;">▶ Run</button>
+            <h2>⚡ Forge Your Code</h2>
+            <div class="prompt-area">
+                <textarea id="genPrompt" placeholder="Describe what you want to build...">Create a Python script that prints a random fact about space</textarea>
+                <div class="prompt-actions">
+                    <button id="clearBtn" class="btn-3d" style="padding:0.3rem 1rem;font-size:0.7rem;">✕ Clear</button>
+                    <button id="pasteBtn" class="btn-3d" style="padding:0.3rem 1rem;font-size:0.7rem;">📋 Paste</button>
+                    <button id="genBtn" class="generate-btn" style="margin-left:auto;">🚀 Generate</button>
                 </div>
-                <pre id="fileContent">// Select a file to view its content</pre>
-                <div id="runOutput" class="output-box" style="display:none;"></div>
-                <button id="downloadBtn" class="secondary" style="margin-top:0.75rem;">📦 Download ZIP</button>
+                <!-- Suggestions -->
+                <div class="suggestions" id="suggestionChips">
+                    <span class="suggestion-chip" data-prompt="Create a Flask web app with a REST API">Flask API</span>
+                    <span class="suggestion-chip" data-prompt="Build a web scraper using requests and BeautifulSoup">Web Scraper</span>
+                    <span class="suggestion-chip" data-prompt="Write a Python script to analyze CSV data with pandas">Data Analysis</span>
+                    <span class="suggestion-chip" data-prompt="Create a Telegram bot with python-telegram-bot">Telegram Bot</span>
+                    <span class="suggestion-chip" data-prompt="Build a machine learning model with scikit-learn">ML Model</span>
+                    <span class="suggestion-chip" data-prompt="Create a to-do list CLI app with argparse">CLI App</span>
+                </div>
+            </div>
+            <div class="log" id="genLog" style="margin-top:0.75rem;font-size:0.8rem;color:var(--text-secondary);">⚡ Ready to forge.</div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- CARD: Generated Code (collapsible)                           -->
+        <!-- ============================================================ -->
+        <div class="card code-panel" id="codePanel">
+            <div class="panel-header" id="panelHeader">
+                <h3>📄 Generated Code <span style="font-size:0.6rem;font-weight:400;color:var(--text-secondary);">(click to collapse)</span></h3>
+                <span class="toggle-icon" id="toggleIcon">▾</span>
+            </div>
+            <div class="code-editor" id="codeEditor">
+                <div class="file-tabs" id="fileTabs"></div>
+                <div class="editor-container">
+                    <textarea id="fileEditor" spellcheck="false"></textarea>
+                </div>
+            </div>
+            <div class="code-actions">
+                <button id="deployBtn" class="btn-3d success" style="display:none;">🚀 Deploy Project</button>
+                <button id="downloadBtn" class="btn-3d primary" style="display:none;">📥 Download ZIP</button>
+                <span id="fileStatus" style="font-size:0.75rem;color:var(--text-secondary);margin-left:0.5rem;"></span>
+            </div>
+            <!-- Deploy progress -->
+            <div class="deploy-progress" id="deployProgress">
+                <p>📦 Packaging your project...</p>
+                <p>🔧 Optimizing dependencies...</p>
+                <p>🌐 Preparing deployment environment...</p>
+                <p>✅ You can download your project as ZIP below.</p>
+                <p>🚀 Ready to deploy to your favorite platform!</p>
             </div>
         </div>
 
@@ -569,14 +770,11 @@
         <!-- FOOTER                                                        -->
         <!-- ============================================================ -->
         <footer class="footer">
-            <span>© 2025 <a href="https://github.com/suryasticsai" style="color:inherit;text-decoration:none;">Suryasticsai</a></span>
+            <span>© 2025 <a href="https://github.com/suryasticsai" target="_blank">Suryasticsai</a></span>
+            <span>Made with <span class="heart">🩷</span> by <a href="https://github.com/suryasticsai" target="_blank">@suryasticsai</a></span>
             <span>
-                Built with <span class="heart">❤️</span> · Powered by Groq &amp; Pyodide
-            </span>
-            <div class="socials">
                 <a href="https://github.com/suryasticsai/grishtesync-backend" target="_blank">GitHub</a>
-                <a href="https://suryasticsai.github.io/GrishteSync" target="_blank">GrishteSync</a>
-            </div>
+            </span>
         </footer>
     </div>
 
@@ -585,7 +783,7 @@
     <!-- ============================================================ -->
     <script type="module">
         // --------------------------------------------------------------
-        // 1. IMPORT THE CLIENT FROM CDN
+        // 1. IMPORTS
         // --------------------------------------------------------------
         import {
             generateCode,
@@ -593,76 +791,136 @@
         } from "https://cdn.jsdelivr.net/gh/suryasticsai/grishtesync-backend@main/static/grishtesync-client.js";
 
         // --------------------------------------------------------------
-        // 2. GRAB DOM REFS
+        // 2. DOM REFS
         // --------------------------------------------------------------
         const $ = (id) => document.getElementById(id);
         const genBtn = $('genBtn');
         const genPrompt = $('genPrompt');
         const genLog = $('genLog');
-        const generatedFilesContainer = $('generatedFilesContainer');
+        const clearBtn = $('clearBtn');
+        const pasteBtn = $('pasteBtn');
+        const suggestionChips = document.querySelectorAll('.suggestion-chip');
+
+        const codePanel = $('codePanel');
+        const panelHeader = $('panelHeader');
+        const toggleIcon = $('toggleIcon');
+        const codeEditor = $('codeEditor');
         const fileTabs = $('fileTabs');
-        const fileContent = $('fileContent');
-        const currentFileName = $('currentFileName');
+        const fileEditor = $('fileEditor');
+        const fileStatus = $('fileStatus');
+        const deployBtn = $('deployBtn');
         const downloadBtn = $('downloadBtn');
-        const runFileBtn = $('runFileBtn');
-        const runOutput = $('runOutput');
+        const deployProgress = $('deployProgress');
+
+        const logoWrapper = $('logoWrapper');
+        const clouds = document.querySelector('.clouds');
+        const body = document.body;
 
         let currentFiles = {};
         let currentFile = '';
         let pyodide = null;
+        let isDeploying = false;
 
         // --------------------------------------------------------------
-        // 3. LOAD PYODIDE (embedded Python runtime)
+        // 3. THEME TOGGLE (Logo click)
         // --------------------------------------------------------------
-        async function loadPyodideRuntime() {
-            if (pyodide) return pyodide;
-            genLog.innerHTML = '⏳ Loading Python runtime (Pyodide) ...';
-            try {
-                pyodide = await globalThis.loadPyodide({
-                    indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.1/full/',
-                });
-                genLog.innerHTML += '<br/><span class="ok">✅ Python runtime ready!</span>';
-                return pyodide;
-            } catch (err) {
-                genLog.innerHTML += `<br/><span class="err">❌ Failed to load Pyodide: ${err.message}</span>`;
-                return null;
+        let isDay = false;
+        let audioCtx = null;
+
+        logoWrapper.addEventListener('click', async () => {
+            // Rotate logo
+            logoWrapper.classList.toggle('rotated');
+
+            // Toggle day/night
+            isDay = !isDay;
+            body.classList.toggle('day-mode', isDay);
+
+            // Play bird chirping sound (Web Audio)
+            if (isDay) {
+                if (!audioCtx) {
+                    audioCtx = new(window.AudioContext || window.webkitAudioContext)();
+                }
+                playChirp();
+            } else {
+                // Stop any ongoing sounds? Not needed.
             }
+        });
+
+        function playChirp() {
+            // Simple bird chirp synthesis
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            // Two tones for a chirp
+            const now = audioCtx.currentTime;
+            osc.frequency.setValueAtTime(2000, now);
+            osc.frequency.exponentialRampToValueAtTime(4000, now + 0.05);
+            osc.frequency.exponentialRampToValueAtTime(3000, now + 0.1);
+
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(0.3, now + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+            osc.start(now);
+            osc.stop(now + 0.15);
+
+            // Second chirp after a short delay
+            const now2 = now + 0.2;
+            const osc2 = audioCtx.createOscillator();
+            const gain2 = audioCtx.createGain();
+            osc2.connect(gain2);
+            gain2.connect(audioCtx.destination);
+            osc2.frequency.setValueAtTime(2500, now2);
+            osc2.frequency.exponentialRampToValueAtTime(5000, now2 + 0.04);
+            osc2.frequency.exponentialRampToValueAtTime(3500, now2 + 0.08);
+
+            gain2.gain.setValueAtTime(0, now2);
+            gain2.gain.linearRampToValueAtTime(0.25, now2 + 0.02);
+            gain2.gain.exponentialRampToValueAtTime(0.001, now2 + 0.12);
+
+            osc2.start(now2);
+            osc2.stop(now2 + 0.12);
         }
 
-        // Load Pyodide in the background
-        loadPyodideRuntime();
-
         // --------------------------------------------------------------
-        // 4. EVENT BUS — loading states
+        // 4. PROMPT ACTIONS
         // --------------------------------------------------------------
-        function setLoading(id, isLoading) {
-            const el = $(id);
-            if (!el) return;
-            el.disabled = isLoading;
-            el.textContent = isLoading ? '⏳ Loading...' : el.dataset.original || el.textContent;
-        }
-
-        [genBtn].forEach((btn) => {
-            if (btn) btn.dataset.original = btn.textContent;
+        // Clear
+        clearBtn.addEventListener('click', () => {
+            genPrompt.value = '';
+            genPrompt.focus();
         });
 
-        on('start', (payload) => {
-            const map = { '/api/generate': genBtn };
-            const btn = map[payload.endpoint];
-            if (btn) setLoading(btn.id, true);
+        // Paste (uses clipboard API)
+        pasteBtn.addEventListener('click', async () => {
+            try {
+                const text = await navigator.clipboard.readText();
+                genPrompt.value = text;
+                genPrompt.focus();
+            } catch {
+                // Fallback: prompt user to paste
+                genPrompt.focus();
+                document.execCommand('paste');
+            }
         });
 
-        on('end', (payload) => {
-            const map = { '/api/generate': genBtn };
-            const btn = map[payload.endpoint];
-            if (btn) setLoading(btn.id, false);
-        });
-
-        on('error', (err) => {
-            [genBtn].forEach((btn) => {
-                if (btn) setLoading(btn.id, false);
+        // Suggestion chips
+        suggestionChips.forEach(chip => {
+            chip.addEventListener('click', () => {
+                genPrompt.value = chip.dataset.prompt;
+                genPrompt.focus();
+                // Auto-generate? We'll let user click generate.
             });
-            console.error('Global error:', err);
+        });
+
+        // Enter key to generate (but not in textarea)
+        genPrompt.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                genBtn.click();
+            }
         });
 
         // --------------------------------------------------------------
@@ -675,46 +933,59 @@
                 return;
             }
 
-            genLog.innerHTML = '⏳ Forging code...';
-            generatedFilesContainer.style.display = 'none';
-            runOutput.style.display = 'none';
-            runFileBtn.style.display = 'none';
+            genLog.innerHTML = '⏳ Forging your code...';
+            codePanel.classList.remove('visible');
+            deployProgress.classList.remove('visible');
+            deployBtn.style.display = 'none';
+            downloadBtn.style.display = 'none';
 
             try {
                 const result = await generateCode(prompt);
                 currentFiles = result.files || {};
                 const fileCount = Object.keys(currentFiles).length;
-
                 if (fileCount === 0) {
                     genLog.innerHTML = '<span class="err">❌ No files were forged.</span>';
                     return;
                 }
 
+                // Show code panel
+                codePanel.classList.add('visible');
+                // Expand editor
+                codeEditor.classList.remove('collapsed');
+                toggleIcon.classList.remove('collapsed');
+                toggleIcon.textContent = '▾';
+
+                // Populate file tabs and editor
                 renderFiles(currentFiles);
-                generatedFilesContainer.style.display = 'block';
                 genLog.innerHTML = `<span class="ok">✅ Forged ${fileCount} files in ${result.generate_time || '?'}s.</span>`;
+                deployBtn.style.display = 'inline-block';
+                downloadBtn.style.display = 'inline-block';
+
+                // Reset deploy progress
+                deployProgress.classList.remove('visible');
+                isDeploying = false;
+
             } catch (err) {
                 genLog.innerHTML = `<span class="err">❌ ${err.message}</span>`;
             }
         });
 
         // --------------------------------------------------------------
-        // 6. RENDER FILES & RUNNER
+        // 6. RENDER FILES & EDITOR
         // --------------------------------------------------------------
         function renderFiles(files) {
             const fileNames = Object.keys(files);
             if (fileNames.length === 0) return;
 
             fileTabs.innerHTML = '';
-
             fileNames.forEach((name, index) => {
                 const tab = document.createElement('span');
                 tab.className = 'file-tab' + (index === 0 ? ' active' : '');
                 const isPython = name.endsWith('.py');
-                tab.innerHTML = `${name} ${isPython ? '🐍' : '📄'}`;
+                tab.textContent = `${name} ${isPython ? '🐍' : '📄'}`;
                 tab.dataset.filename = name;
                 tab.addEventListener('click', () => {
-                    document.querySelectorAll('.file-tab').forEach((t) => t.classList.remove('active'));
+                    document.querySelectorAll('.file-tab').forEach(t => t.classList.remove('active'));
                     tab.classList.add('active');
                     showFile(name);
                 });
@@ -728,78 +999,62 @@
 
         function showFile(filename) {
             currentFile = filename;
-            currentFileName.textContent = filename;
-            fileContent.textContent = currentFiles[filename];
-            runOutput.style.display = 'none';
-            runOutput.innerHTML = '';
-
-            // Show run button only for Python files
-            if (filename.endsWith('.py')) {
-                runFileBtn.style.display = 'inline-block';
-            } else {
-                runFileBtn.style.display = 'none';
-            }
+            fileEditor.value = currentFiles[filename];
+            fileStatus.textContent = `Editing: ${filename}`;
+            // Update active tab highlight
+            document.querySelectorAll('.file-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.filename === filename);
+            });
         }
 
-        // --------------------------------------------------------------
-        // 7. RUN PYTHON CODE (via Pyodide)
-        // --------------------------------------------------------------
-        runFileBtn.addEventListener('click', async () => {
-            if (!currentFile || !currentFiles[currentFile]) return;
-
-            const code = currentFiles[currentFile];
-            runOutput.style.display = 'block';
-            runOutput.innerHTML = '⏳ Running ...';
-
-            if (!pyodide) {
-                pyodide = await loadPyodideRuntime();
-                if (!pyodide) {
-                    runOutput.innerHTML = '<span class="stderr">❌ Failed to load Python runtime.</span>';
-                    return;
-                }
-            }
-
-            try {
-                pyodide.runPython(`
-import sys
-from io import StringIO
-sys.stdout = StringIO()
-sys.stderr = StringIO()
-                `);
-
-                try {
-                    pyodide.runPython(code);
-                } catch (err) {
-                    // error captured in stderr
-                }
-
-                const stdout = pyodide.runPython('sys.stdout.getvalue()');
-                const stderr = pyodide.runPython('sys.stderr.getvalue()');
-
-                let outputHtml = '';
-                if (stdout) outputHtml += `<div class="stdout">${escapeHtml(stdout)}</div>`;
-                if (stderr) outputHtml += `<div class="stderr">${escapeHtml(stderr)}</div>`;
-                if (!stdout && !stderr) outputHtml = '<span style="color:var(--text-dim);">(No output)</span>';
-
-                runOutput.innerHTML = outputHtml;
-
-                pyodide.runPython(`
-sys.stdout = sys.__stdout__
-sys.stderr = sys.__stderr__
-                `);
-            } catch (err) {
-                runOutput.innerHTML = `<span class="stderr">❌ Error: ${escapeHtml(err.message)}</span>`;
+        // Update file content on edit
+        fileEditor.addEventListener('input', () => {
+            if (currentFile && currentFiles[currentFile] !== undefined) {
+                currentFiles[currentFile] = fileEditor.value;
             }
         });
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
+        // --------------------------------------------------------------
+        // 7. COLLAPSE / EXPAND PANEL
+        // --------------------------------------------------------------
+        panelHeader.addEventListener('click', () => {
+            const isCollapsed = codeEditor.classList.toggle('collapsed');
+            toggleIcon.classList.toggle('collapsed', isCollapsed);
+            toggleIcon.textContent = isCollapsed ? '▸' : '▾';
+        });
 
         // --------------------------------------------------------------
-        // 8. DOWNLOAD ZIP
+        // 8. DEPLOY (Simulated progress + download)
+        // --------------------------------------------------------------
+        deployBtn.addEventListener('click', async () => {
+            if (isDeploying) return;
+            isDeploying = true;
+            deployBtn.disabled = true;
+
+            // Collapse code editor
+            codeEditor.classList.add('collapsed');
+            toggleIcon.classList.add('collapsed');
+            toggleIcon.textContent = '▸';
+
+            // Show progress
+            deployProgress.classList.add('visible');
+
+            // After a few seconds, show download option
+            setTimeout(() => {
+                deployProgress.innerHTML += `
+                    <p style="color:var(--neon-green);font-weight:600;margin-top:0.5rem;">
+                        ✅ Project is ready! Click the Download ZIP button below.
+                    </p>
+                `;
+                deployBtn.style.display = 'none';
+                downloadBtn.style.display = 'inline-block';
+                isDeploying = false;
+                deployBtn.disabled = false;
+            }, 4000);
+        });
+
+        // --------------------------------------------------------------
+        // 9. DOWNLOAD ZIP
         // --------------------------------------------------------------
         downloadBtn.addEventListener('click', async () => {
             if (Object.keys(currentFiles).length === 0) {
@@ -810,16 +1065,14 @@ sys.stderr = sys.__stderr__
             try {
                 const JSZip = (await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm')).default;
                 const zip = new JSZip();
-
                 Object.entries(currentFiles).forEach(([name, content]) => {
                     zip.file(name, content);
                 });
-
                 const blob = await zip.generateAsync({ type: 'blob' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = 'codeforge-generated.zip';
+                a.download = 'grishtesync-project.zip';
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -840,12 +1093,30 @@ sys.stderr = sys.__stderr__
             }
         });
 
-        // Enter key to generate
-        genPrompt.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') genBtn.click();
-        });
+        // --------------------------------------------------------------
+        // 10. LOAD PYODIDE (background)
+        // --------------------------------------------------------------
+        async function loadPyodideRuntime() {
+            if (pyodide) return pyodide;
+            try {
+                pyodide = await globalThis.loadPyodide({
+                    indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.1/full/',
+                });
+                console.log('Pyodide loaded');
+                return pyodide;
+            } catch (e) {
+                console.warn('Pyodide load failed:', e);
+                return null;
+            }
+        }
+        loadPyodideRuntime();
 
-        console.log('🚀 CodeForge · AI Code Arena ready!');
+        // --------------------------------------------------------------
+        // 11. EVENT BUS for loading states (optional)
+        // --------------------------------------------------------------
+        // We'll just handle button state manually
+
+        console.log('🚀 GrishteSync · Prompt2Prod ready!');
     </script>
 
 </body>
