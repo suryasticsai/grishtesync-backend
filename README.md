@@ -1,6 +1,7 @@
 <p align="center">
   <img src="https://i.ibb.co/RGmb4FKk/1781072041102.png" alt="GrishteSync Logo" width="150" />
 </p> 
+
 #  GrishteSync Backend
 [![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/Flask-2.0%2B-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
