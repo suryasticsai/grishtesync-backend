@@ -4,15 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GrishteSync · Prompt2Prod</title>
-    <!-- Favicon (GrishteSync logo) -->
+    <!-- Favicon -->
     <link rel="icon" type="image/png" href="https://i.ibb.co/RGmb4FKk/1781072041102.png" />
     <!-- Pyodide CDN -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js"></script>
-    <!-- Google Fonts: Orbitron for headings, Inter for body -->
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <style>
         /* ================================================================
-               GLOBAL RESET & BASE – Dark Space / Day toggle
+               GLOBAL RESET & BASE
             ================================================================ */
         * {
             margin: 0;
@@ -25,7 +25,7 @@
             --bg-secondary: #0f1a2b;
             --bg-card: rgba(15, 25, 45, 0.75);
             --text-primary: #e8edf5;
-            --text-secondary: #8b9bb5;
+            --text-secondary: #b0c0d0;
             --neon-cyan: #00d4ff;
             --neon-purple: #a78bfa;
             --neon-pink: #f472b6;
@@ -35,23 +35,25 @@
             --border-neon: 1px solid rgba(0, 212, 255, 0.15);
             --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.6);
             --transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            --card-bg: rgba(12, 12, 35, 0.5);
         }
 
-        /* ---- Day theme (triggered by logo click) ---- */
+        /* ---- Day theme (bright, readable) ---- */
         body.day-mode {
-            --bg-primary: #f0f4fa;
-            --bg-secondary: #dce4ec;
-            --bg-card: rgba(255, 255, 255, 0.7);
+            --bg-primary: #e8f0fa;
+            --bg-secondary: #d0dce8;
+            --bg-card: rgba(255, 255, 255, 0.75);
             --text-primary: #1a2332;
-            --text-secondary: #3d4a5c;
-            --neon-cyan: #0077be;
+            --text-secondary: #2d3a4c;
+            --neon-cyan: #0066aa;
             --neon-purple: #6d4fc9;
-            --neon-pink: #d9468b;
+            --neon-pink: #c0397a;
             --neon-green: #0d9e6c;
-            --neon-orange: #d97706;
-            --glow-cyan: 0 0 40px rgba(0, 119, 190, 0.15);
-            --border-neon: 1px solid rgba(0, 119, 190, 0.2);
-            --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.1);
+            --neon-orange: #c96a0a;
+            --glow-cyan: 0 0 40px rgba(0, 102, 170, 0.15);
+            --border-neon: 1px solid rgba(0, 102, 170, 0.2);
+            --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.08);
+            --card-bg: rgba(255, 255, 255, 0.65);
         }
 
         body {
@@ -60,17 +62,17 @@
             font-family: 'Inter', -apple-system, sans-serif;
             min-height: 100vh;
             padding: 2rem 1.5rem;
-            background-image:
-                radial-gradient(circle at 20% 30%, rgba(0, 212, 255, 0.04) 0%, transparent 50%),
-                radial-gradient(circle at 80% 70%, rgba(167, 139, 250, 0.04) 0%, transparent 50%);
             display: flex;
             justify-content: center;
             align-items: flex-start;
             transition: var(--transition);
             position: relative;
+            background-image:
+                radial-gradient(circle at 20% 30%, rgba(0, 212, 255, 0.04) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(167, 139, 250, 0.04) 0%, transparent 50%);
         }
 
-        /* ---- Animated background particles (stars) ---- */
+        /* ---- Animated stars (dark mode) ---- */
         body::before {
             content: '';
             position: fixed;
@@ -84,20 +86,17 @@
                 radial-gradient(2px 2px at 160px 30px, rgba(255, 255, 255, 0.7), transparent);
             background-size: 200px 200px;
             background-repeat: repeat;
-            opacity: 0.5;
+            opacity: 0.4;
             pointer-events: none;
             z-index: 0;
             transition: opacity 0.8s ease;
         }
-
         body.day-mode::before {
-            opacity: 0.1;
-            background-image: radial-gradient(2px 2px at 20px 30px, #8ba0b8, transparent),
-                radial-gradient(2px 2px at 40px 70px, #6a7f96, transparent);
+            opacity: 0;
         }
 
-        /* ---- Clouds (day mode) ---- */
-        .clouds {
+        /* ---- Clouds & Sun (day mode) ---- */
+        .weather {
             position: fixed;
             inset: 0;
             pointer-events: none;
@@ -106,7 +105,7 @@
             opacity: 0;
             transition: opacity 1.5s ease;
         }
-        body.day-mode .clouds {
+        body.day-mode .weather {
             opacity: 1;
         }
         .cloud {
@@ -114,37 +113,61 @@
             background: rgba(255, 255, 255, 0.7);
             border-radius: 50%;
             filter: blur(40px);
-            animation: float-cloud 20s linear infinite;
+            animation: float-cloud 25s linear infinite;
         }
         .cloud:nth-child(1) {
             width: 300px;
             height: 100px;
             top: 10%;
             left: -10%;
-            animation-duration: 25s;
+            animation-duration: 28s;
         }
         .cloud:nth-child(2) {
             width: 400px;
             height: 120px;
             top: 30%;
             left: 30%;
-            animation-duration: 30s;
-            animation-delay: -5s;
+            animation-duration: 32s;
+            animation-delay: -6s;
         }
         .cloud:nth-child(3) {
             width: 250px;
             height: 80px;
             top: 60%;
             left: 60%;
-            animation-duration: 22s;
-            animation-delay: -10s;
+            animation-duration: 24s;
+            animation-delay: -12s;
         }
         @keyframes float-cloud {
             0% {
-                transform: translateX(-100px);
+                transform: translateX(-150px);
             }
             100% {
                 transform: translateX(calc(100vw + 200px));
+            }
+        }
+
+        /* Sun */
+        .sun {
+            position: absolute;
+            top: 5%;
+            right: 8%;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: radial-gradient(circle, #ffdd44, #ff8800);
+            box-shadow: 0 0 80px #ffaa00, 0 0 150px #ff880066;
+            animation: pulse-sun 4s ease-in-out infinite;
+        }
+        @keyframes pulse-sun {
+            0%,
+            100% {
+                transform: scale(1);
+                box-shadow: 0 0 80px #ffaa00, 0 0 150px #ff880066;
+            }
+            50% {
+                transform: scale(1.08);
+                box-shadow: 0 0 100px #ffaa00, 0 0 200px #ff880088;
             }
         }
 
@@ -165,7 +188,6 @@
             overflow: hidden;
         }
 
-        /* ---- Glow ring animation ---- */
         .app-container::before {
             content: '';
             position: absolute;
@@ -251,6 +273,7 @@
             box-shadow: 0 0 60px rgba(0, 212, 255, 0.4);
         }
 
+        /* Glitchy text effect */
         .brand h1 {
             font-family: 'Orbitron', sans-serif;
             font-size: 2.4rem;
@@ -260,9 +283,41 @@
             background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            text-shadow: 0 0 40px rgba(0, 212, 255, 0.2);
+            text-shadow: 0 0 40px rgba(0, 212, 255, 0.15);
             line-height: 1.2;
+            position: relative;
+            display: inline-block;
+            transition: all 0.2s;
         }
+        .brand h1.glitch {
+            animation: glitch 0.3s ease-in-out 3;
+        }
+        @keyframes glitch {
+            0% {
+                transform: translate(0, 0);
+            }
+            20% {
+                transform: translate(-2px, 1px);
+                text-shadow: 2px 0 var(--neon-pink), -2px 0 var(--neon-cyan);
+            }
+            40% {
+                transform: translate(2px, -1px);
+                text-shadow: -3px 0 var(--neon-cyan), 3px 0 var(--neon-pink);
+            }
+            60% {
+                transform: translate(-1px, 2px);
+                text-shadow: 1px 0 var(--neon-purple), -1px 0 var(--neon-orange);
+            }
+            80% {
+                transform: translate(1px, -2px);
+                text-shadow: -2px 0 var(--neon-orange), 2px 0 var(--neon-purple);
+            }
+            100% {
+                transform: translate(0, 0);
+                text-shadow: none;
+            }
+        }
+
         .brand .tagline {
             font-family: 'Orbitron', sans-serif;
             font-size: 1rem;
@@ -278,10 +333,10 @@
         }
 
         /* ================================================================
-               CARDS – Glassmorphism
+               CARDS – Glassmorphism with improved day mode
             ================================================================ */
         .card {
-            background: rgba(12, 12, 35, 0.5);
+            background: var(--card-bg);
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
             border-radius: 28px;
@@ -297,6 +352,14 @@
             border-color: rgba(0, 212, 255, 0.2);
             box-shadow: var(--glow-cyan), var(--shadow-card);
         }
+        body.day-mode .card {
+            background: rgba(255, 255, 255, 0.6);
+            border-color: rgba(0, 102, 170, 0.1);
+        }
+        body.day-mode .card:hover {
+            border-color: rgba(0, 102, 170, 0.25);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+        }
 
         .card h2 {
             font-family: 'Orbitron', sans-serif;
@@ -308,18 +371,21 @@
             display: flex;
             align-items: center;
             gap: 0.75rem;
-            text-shadow: 0 0 20px rgba(0, 212, 255, 0.15);
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+        }
+        body.day-mode .card h2 {
+            text-shadow: none;
         }
 
-        /* ---- Prompt input area ---- */
+        /* ---- Prompt area ---- */
         .prompt-area {
             display: flex;
             flex-direction: column;
             gap: 0.75rem;
         }
         .prompt-area textarea {
-            background: rgba(0, 0, 0, 0.4);
-            border: 1px solid rgba(0, 212, 255, 0.15);
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(0, 212, 255, 0.12);
             border-radius: 20px;
             padding: 1rem 1.2rem;
             font-family: 'Inter', sans-serif;
@@ -332,11 +398,17 @@
             width: 100%;
             line-height: 1.6;
         }
+        body.day-mode .prompt-area textarea {
+            background: rgba(255, 255, 255, 0.7);
+            color: #1a2332;
+            border-color: rgba(0, 102, 170, 0.15);
+        }
         .prompt-area textarea:focus {
             outline: none;
             border-color: var(--neon-cyan);
             box-shadow: 0 0 30px rgba(0, 212, 255, 0.1);
         }
+
         .prompt-actions {
             display: flex;
             gap: 0.6rem;
@@ -345,7 +417,7 @@
         }
         .prompt-actions button {
             background: rgba(0, 212, 255, 0.06);
-            border: 1px solid rgba(0, 212, 255, 0.15);
+            border: 1px solid rgba(0, 212, 255, 0.12);
             color: var(--text-secondary);
             padding: 0.4rem 1.2rem;
             border-radius: 30px;
@@ -360,6 +432,14 @@
             background: rgba(0, 212, 255, 0.15);
             border-color: var(--neon-cyan);
             color: #fff;
+        }
+        body.day-mode .prompt-actions button {
+            background: rgba(0, 102, 170, 0.05);
+            color: var(--text-secondary);
+        }
+        body.day-mode .prompt-actions button:hover {
+            background: rgba(0, 102, 170, 0.12);
+            color: var(--text-primary);
         }
 
         .generate-btn {
@@ -387,8 +467,16 @@
         .generate-btn:active {
             transform: scale(0.96);
         }
+        body.day-mode .generate-btn {
+            background: linear-gradient(135deg, rgba(0, 102, 170, 0.15), rgba(109, 79, 201, 0.15));
+            border-color: var(--neon-cyan);
+            color: var(--text-primary);
+        }
+        body.day-mode .generate-btn:hover {
+            background: linear-gradient(135deg, rgba(0, 102, 170, 0.25), rgba(109, 79, 201, 0.25));
+        }
 
-        /* ---- Suggestion chips ---- */
+        /* Suggestions */
         .suggestions {
             display: flex;
             flex-wrap: wrap;
@@ -397,7 +485,7 @@
         }
         .suggestion-chip {
             background: rgba(0, 212, 255, 0.05);
-            border: 1px solid rgba(0, 212, 255, 0.1);
+            border: 1px solid rgba(0, 212, 255, 0.08);
             padding: 0.3rem 1rem;
             border-radius: 30px;
             font-size: 0.75rem;
@@ -413,8 +501,16 @@
             color: #fff;
             transform: translateY(-1px);
         }
+        body.day-mode .suggestion-chip {
+            background: rgba(0, 102, 170, 0.05);
+            color: var(--text-secondary);
+        }
+        body.day-mode .suggestion-chip:hover {
+            background: rgba(0, 102, 170, 0.1);
+            color: var(--text-primary);
+        }
 
-        /* ---- Generated code area ---- */
+        /* ---- Code panel ---- */
         .code-panel {
             margin-top: 1.5rem;
             border-top: 1px solid rgba(0, 212, 255, 0.08);
@@ -449,14 +545,18 @@
         }
 
         .code-editor {
-            background: rgba(0, 0, 0, 0.4);
+            background: rgba(0, 0, 0, 0.3);
             border-radius: 20px;
-            border: 1px solid rgba(0, 212, 255, 0.08);
+            border: 1px solid rgba(0, 212, 255, 0.06);
             overflow: hidden;
             margin-top: 0.75rem;
-            transition: max-height 0.4s ease, opacity 0.4s ease;
+            transition: max-height 0.4s ease, opacity 0.4s ease, padding 0.4s ease;
             max-height: 600px;
             opacity: 1;
+            padding: 0;
+        }
+        body.day-mode .code-editor {
+            background: rgba(255, 255, 255, 0.3);
         }
         .code-editor.collapsed {
             max-height: 0 !important;
@@ -474,6 +574,9 @@
             background: rgba(0, 0, 0, 0.2);
             border-bottom: 1px solid rgba(0, 212, 255, 0.06);
         }
+        body.day-mode .file-tabs {
+            background: rgba(255, 255, 255, 0.2);
+        }
         .file-tab {
             padding: 0.25rem 1rem;
             border-radius: 30px;
@@ -490,6 +593,11 @@
             border-color: var(--neon-cyan);
             color: var(--neon-cyan);
         }
+        body.day-mode .file-tab.active {
+            background: rgba(0, 102, 170, 0.1);
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+        }
         .file-tab:hover {
             color: #fff;
             border-color: rgba(0, 212, 255, 0.2);
@@ -501,7 +609,7 @@
         .editor-container textarea {
             width: 100%;
             min-height: 200px;
-            background: rgba(0, 0, 0, 0.3);
+            background: rgba(0, 0, 0, 0.2);
             border: 1px solid rgba(0, 212, 255, 0.06);
             border-radius: 16px;
             color: var(--text-primary);
@@ -511,6 +619,11 @@
             resize: vertical;
             transition: border-color 0.3s;
             line-height: 1.6;
+        }
+        body.day-mode .editor-container textarea {
+            background: rgba(255, 255, 255, 0.5);
+            color: #1a2332;
+            border-color: rgba(0, 102, 170, 0.1);
         }
         .editor-container textarea:focus {
             outline: none;
@@ -526,6 +639,7 @@
             align-items: center;
         }
 
+        /* ---- 3D Buttons ---- */
         .btn-3d {
             position: relative;
             display: inline-block;
@@ -562,15 +676,30 @@
         .btn-3d.success:active {
             box-shadow: 0 2px 0 #065c3e, 0 8px 20px rgba(13, 158, 108, 0.2);
         }
+        .btn-3d.secondary {
+            background: linear-gradient(145deg, #6d4fc9, #5539a3);
+            box-shadow: 0 6px 0 #3f2b7a, 0 8px 20px rgba(109, 79, 201, 0.3);
+        }
+        .btn-3d.secondary:active {
+            box-shadow: 0 2px 0 #3f2b7a, 0 8px 20px rgba(109, 79, 201, 0.2);
+        }
+        /* Day mode button adjustments */
+        body.day-mode .btn-3d {
+            color: #fff;
+        }
 
-        /* ---- Deploy progress ---- */
+        /* ---- Deploy progress (output panel) ---- */
         .deploy-progress {
             display: none;
             margin-top: 1rem;
-            padding: 1rem;
+            padding: 1.2rem;
             background: rgba(0, 0, 0, 0.3);
             border-radius: 20px;
-            border-left: 3px solid var(--neon-cyan);
+            border-left: 4px solid var(--neon-cyan);
+            backdrop-filter: blur(4px);
+        }
+        body.day-mode .deploy-progress {
+            background: rgba(255, 255, 255, 0.5);
         }
         .deploy-progress.visible {
             display: block;
@@ -586,21 +715,27 @@
             animation-delay: 0.2s;
         }
         .deploy-progress p:nth-child(2) {
-            animation-delay: 0.8s;
+            animation-delay: 0.7s;
         }
         .deploy-progress p:nth-child(3) {
-            animation-delay: 1.4s;
+            animation-delay: 1.2s;
         }
         .deploy-progress p:nth-child(4) {
-            animation-delay: 2.0s;
+            animation-delay: 1.7s;
         }
         .deploy-progress p:nth-child(5) {
-            animation-delay: 2.6s;
+            animation-delay: 2.2s;
+        }
+        .deploy-progress .success-message {
+            color: var(--neon-green);
+            font-weight: 600;
+            margin-top: 0.5rem;
+            font-size: 1rem;
         }
         @keyframes fade-in-up {
             from {
                 opacity: 0;
-                transform: translateY(10px);
+                transform: translateY(12px);
             }
             to {
                 opacity: 1;
@@ -636,7 +771,7 @@
                 transform: scale(1);
             }
             50% {
-                transform: scale(1.3);
+                transform: scale(1.25);
             }
         }
         .footer a {
@@ -670,9 +805,13 @@
             .suggestions {
                 gap: 0.3rem;
             }
+            .sun {
+                width: 60px;
+                height: 60px;
+                right: 5%;
+            }
         }
 
-        /* ---- Utilities ---- */
         .hidden {
             display: none !important;
         }
@@ -684,15 +823,24 @@
             align-items: center;
             gap: 0.5rem;
         }
+        /* Glitch text class for any element */
+        .glitch-text {
+            display: inline-block;
+            transition: all 0.1s;
+        }
+        .glitch-text:hover {
+            animation: glitch 0.3s ease-in-out 2;
+        }
     </style>
 </head>
 <body>
 
-    <!-- Clouds (day mode) -->
-    <div class="clouds">
+    <!-- Weather (clouds + sun) -->
+    <div class="weather">
         <div class="cloud"></div>
         <div class="cloud"></div>
         <div class="cloud"></div>
+        <div class="sun"></div>
     </div>
 
     <div class="app-container">
@@ -707,15 +855,15 @@
                 </div>
             </div>
             <div class="brand">
-                <h1>GrishteSync</h1>
+                <h1 id="brandTitle">GrishteSync</h1>
                 <div class="tagline">Prompt <span>→</span> Prod</div>
             </div>
         </header>
 
         <!-- ============================================================ -->
-        <!-- CARD: Prompt Input                                           -->
+        <!-- CARD: Prompt Input (will be hidden after deploy)            -->
         <!-- ============================================================ -->
-        <div class="card">
+        <div class="card" id="promptCard">
             <h2>⚡ Forge Your Code</h2>
             <div class="prompt-area">
                 <textarea id="genPrompt" placeholder="Describe what you want to build...">Create a Python script that prints a random fact about space</textarea>
@@ -753,16 +901,18 @@
             </div>
             <div class="code-actions">
                 <button id="deployBtn" class="btn-3d success" style="display:none;">🚀 Deploy Project</button>
-                <button id="downloadBtn" class="btn-3d primary" style="display:none;">📥 Download ZIP</button>
                 <span id="fileStatus" style="font-size:0.75rem;color:var(--text-secondary);margin-left:0.5rem;"></span>
             </div>
-            <!-- Deploy progress -->
+            <!-- Deploy progress / output panel -->
             <div class="deploy-progress" id="deployProgress">
                 <p>📦 Packaging your project...</p>
                 <p>🔧 Optimizing dependencies...</p>
                 <p>🌐 Preparing deployment environment...</p>
-                <p>✅ You can download your project as ZIP below.</p>
-                <p>🚀 Ready to deploy to your favorite platform!</p>
+                <p>✅ Project is ready!</p>
+                <div class="success-message">📥 Click below to download your project as ZIP.</div>
+                <div style="margin-top:0.75rem;">
+                    <button id="downloadBtn" class="btn-3d primary" style="display:inline-block;">📥 Download ZIP</button>
+                </div>
             </div>
         </div>
 
@@ -779,7 +929,7 @@
     </div>
 
     <!-- ============================================================ -->
-    <!-- SCRIPT: Import client, Pyodide, wire everything               -->
+    <!-- SCRIPT: Logic & Interactions                                  -->
     <!-- ============================================================ -->
     <script type="module">
         // --------------------------------------------------------------
@@ -801,6 +951,7 @@
         const pasteBtn = $('pasteBtn');
         const suggestionChips = document.querySelectorAll('.suggestion-chip');
 
+        const promptCard = $('promptCard');
         const codePanel = $('codePanel');
         const panelHeader = $('panelHeader');
         const toggleIcon = $('toggleIcon');
@@ -813,19 +964,43 @@
         const deployProgress = $('deployProgress');
 
         const logoWrapper = $('logoWrapper');
-        const clouds = document.querySelector('.clouds');
+        const brandTitle = $('brandTitle');
         const body = document.body;
 
         let currentFiles = {};
         let currentFile = '';
         let pyodide = null;
         let isDeploying = false;
+        let audioCtx = null;
 
         // --------------------------------------------------------------
-        // 3. THEME TOGGLE (Logo click)
+        // 3. AUDIO: Button click sound (synthetic)
+        // --------------------------------------------------------------
+        function playClickSound() {
+            if (!audioCtx) {
+                audioCtx = new(window.AudioContext || window.webkitAudioContext)();
+            }
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.08);
+            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+            osc.start(audioCtx.currentTime);
+            osc.stop(audioCtx.currentTime + 0.08);
+        }
+
+        // Attach click sound to all buttons
+        document.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', playClickSound);
+        });
+
+        // --------------------------------------------------------------
+        // 4. THEME TOGGLE (Logo click) + Glitch + Birds
         // --------------------------------------------------------------
         let isDay = false;
-        let audioCtx = null;
 
         logoWrapper.addEventListener('click', async () => {
             // Rotate logo
@@ -835,38 +1010,38 @@
             isDay = !isDay;
             body.classList.toggle('day-mode', isDay);
 
-            // Play bird chirping sound (Web Audio)
+            // Glitch effect on brand title
+            brandTitle.classList.remove('glitch');
+            void brandTitle.offsetWidth; // reflow
+            brandTitle.classList.add('glitch');
+            setTimeout(() => brandTitle.classList.remove('glitch'), 1000);
+
+            // Bird chirp (only in day mode)
             if (isDay) {
                 if (!audioCtx) {
                     audioCtx = new(window.AudioContext || window.webkitAudioContext)();
                 }
                 playChirp();
-            } else {
-                // Stop any ongoing sounds? Not needed.
             }
         });
 
         function playChirp() {
-            // Simple bird chirp synthesis
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-
-            // Two tones for a chirp
             const now = audioCtx.currentTime;
-            osc.frequency.setValueAtTime(2000, now);
-            osc.frequency.exponentialRampToValueAtTime(4000, now + 0.05);
-            osc.frequency.exponentialRampToValueAtTime(3000, now + 0.1);
+            // First chirp
+            const osc1 = audioCtx.createOscillator();
+            const gain1 = audioCtx.createGain();
+            osc1.connect(gain1);
+            gain1.connect(audioCtx.destination);
+            osc1.frequency.setValueAtTime(2000, now);
+            osc1.frequency.exponentialRampToValueAtTime(4000, now + 0.05);
+            osc1.frequency.exponentialRampToValueAtTime(3000, now + 0.1);
+            gain1.gain.setValueAtTime(0, now);
+            gain1.gain.linearRampToValueAtTime(0.2, now + 0.02);
+            gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+            osc1.start(now);
+            osc1.stop(now + 0.15);
 
-            gain.gain.setValueAtTime(0, now);
-            gain.gain.linearRampToValueAtTime(0.3, now + 0.02);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-
-            osc.start(now);
-            osc.stop(now + 0.15);
-
-            // Second chirp after a short delay
+            // Second chirp
             const now2 = now + 0.2;
             const osc2 = audioCtx.createOscillator();
             const gain2 = audioCtx.createGain();
@@ -875,47 +1050,39 @@
             osc2.frequency.setValueAtTime(2500, now2);
             osc2.frequency.exponentialRampToValueAtTime(5000, now2 + 0.04);
             osc2.frequency.exponentialRampToValueAtTime(3500, now2 + 0.08);
-
             gain2.gain.setValueAtTime(0, now2);
-            gain2.gain.linearRampToValueAtTime(0.25, now2 + 0.02);
+            gain2.gain.linearRampToValueAtTime(0.15, now2 + 0.02);
             gain2.gain.exponentialRampToValueAtTime(0.001, now2 + 0.12);
-
             osc2.start(now2);
             osc2.stop(now2 + 0.12);
         }
 
         // --------------------------------------------------------------
-        // 4. PROMPT ACTIONS
+        // 5. PROMPT ACTIONS
         // --------------------------------------------------------------
-        // Clear
         clearBtn.addEventListener('click', () => {
             genPrompt.value = '';
             genPrompt.focus();
         });
 
-        // Paste (uses clipboard API)
         pasteBtn.addEventListener('click', async () => {
             try {
                 const text = await navigator.clipboard.readText();
                 genPrompt.value = text;
                 genPrompt.focus();
             } catch {
-                // Fallback: prompt user to paste
                 genPrompt.focus();
                 document.execCommand('paste');
             }
         });
 
-        // Suggestion chips
         suggestionChips.forEach(chip => {
             chip.addEventListener('click', () => {
                 genPrompt.value = chip.dataset.prompt;
                 genPrompt.focus();
-                // Auto-generate? We'll let user click generate.
             });
         });
 
-        // Enter key to generate (but not in textarea)
         genPrompt.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -924,12 +1091,12 @@
         });
 
         // --------------------------------------------------------------
-        // 5. GENERATE CODE
+        // 6. GENERATE CODE
         // --------------------------------------------------------------
         genBtn.addEventListener('click', async () => {
             const prompt = genPrompt.value.trim();
             if (!prompt) {
-                genLog.innerHTML = '<span class="err">❌ Please enter a prompt.</span>';
+                genLog.innerHTML = '<span style="color:#f85149;">❌ Please enter a prompt.</span>';
                 return;
             }
 
@@ -937,41 +1104,38 @@
             codePanel.classList.remove('visible');
             deployProgress.classList.remove('visible');
             deployBtn.style.display = 'none';
-            downloadBtn.style.display = 'none';
+            // Make sure prompt card is visible
+            promptCard.style.display = 'block';
 
             try {
                 const result = await generateCode(prompt);
                 currentFiles = result.files || {};
                 const fileCount = Object.keys(currentFiles).length;
                 if (fileCount === 0) {
-                    genLog.innerHTML = '<span class="err">❌ No files were forged.</span>';
+                    genLog.innerHTML = '<span style="color:#f85149;">❌ No files were forged.</span>';
                     return;
                 }
 
                 // Show code panel
                 codePanel.classList.add('visible');
-                // Expand editor
                 codeEditor.classList.remove('collapsed');
                 toggleIcon.classList.remove('collapsed');
                 toggleIcon.textContent = '▾';
 
-                // Populate file tabs and editor
                 renderFiles(currentFiles);
-                genLog.innerHTML = `<span class="ok">✅ Forged ${fileCount} files in ${result.generate_time || '?'}s.</span>`;
+                genLog.innerHTML = `<span style="color:#34d399;">✅ Forged ${fileCount} files in ${result.generate_time || '?'}s.</span>`;
                 deployBtn.style.display = 'inline-block';
-                downloadBtn.style.display = 'inline-block';
-
-                // Reset deploy progress
                 deployProgress.classList.remove('visible');
                 isDeploying = false;
+                deployBtn.disabled = false;
 
             } catch (err) {
-                genLog.innerHTML = `<span class="err">❌ ${err.message}</span>`;
+                genLog.innerHTML = `<span style="color:#f85149;">❌ ${err.message}</span>`;
             }
         });
 
         // --------------------------------------------------------------
-        // 6. RENDER FILES & EDITOR
+        // 7. RENDER FILES & EDITOR
         // --------------------------------------------------------------
         function renderFiles(files) {
             const fileNames = Object.keys(files);
@@ -992,7 +1156,6 @@
                 fileTabs.appendChild(tab);
             });
 
-            // Show first file
             const firstFile = fileNames[0];
             showFile(firstFile);
         }
@@ -1001,13 +1164,11 @@
             currentFile = filename;
             fileEditor.value = currentFiles[filename];
             fileStatus.textContent = `Editing: ${filename}`;
-            // Update active tab highlight
             document.querySelectorAll('.file-tab').forEach(tab => {
                 tab.classList.toggle('active', tab.dataset.filename === filename);
             });
         }
 
-        // Update file content on edit
         fileEditor.addEventListener('input', () => {
             if (currentFile && currentFiles[currentFile] !== undefined) {
                 currentFiles[currentFile] = fileEditor.value;
@@ -1015,7 +1176,7 @@
         });
 
         // --------------------------------------------------------------
-        // 7. COLLAPSE / EXPAND PANEL
+        // 8. COLLAPSE / EXPAND PANEL
         // --------------------------------------------------------------
         panelHeader.addEventListener('click', () => {
             const isCollapsed = codeEditor.classList.toggle('collapsed');
@@ -1024,37 +1185,37 @@
         });
 
         // --------------------------------------------------------------
-        // 8. DEPLOY (Simulated progress + download)
+        // 9. DEPLOY (Simulated) – collapse editor, hide prompt, show output
         // --------------------------------------------------------------
         deployBtn.addEventListener('click', async () => {
             if (isDeploying) return;
             isDeploying = true;
             deployBtn.disabled = true;
 
-            // Collapse code editor
+            // 1. Collapse code editor
             codeEditor.classList.add('collapsed');
             toggleIcon.classList.add('collapsed');
             toggleIcon.textContent = '▸';
 
-            // Show progress
+            // 2. Hide the prompt card (clean interface)
+            promptCard.style.display = 'none';
+
+            // 3. Show deploy progress with messages
             deployProgress.classList.add('visible');
 
-            // After a few seconds, show download option
+            // 4. After a few seconds, show download button (already in progress)
+            // The progress panel already contains the download button.
+            // We'll also re-enable the deploy button after a moment (but we hide it)
             setTimeout(() => {
-                deployProgress.innerHTML += `
-                    <p style="color:var(--neon-green);font-weight:600;margin-top:0.5rem;">
-                        ✅ Project is ready! Click the Download ZIP button below.
-                    </p>
-                `;
                 deployBtn.style.display = 'none';
-                downloadBtn.style.display = 'inline-block';
                 isDeploying = false;
                 deployBtn.disabled = false;
-            }, 4000);
+                // Optionally show a success message
+            }, 3000);
         });
 
         // --------------------------------------------------------------
-        // 9. DOWNLOAD ZIP
+        // 10. DOWNLOAD ZIP
         // --------------------------------------------------------------
         downloadBtn.addEventListener('click', async () => {
             if (Object.keys(currentFiles).length === 0) {
@@ -1077,6 +1238,13 @@
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
+                // Optional: show feedback
+                const msg = document.createElement('div');
+                msg.style.color = 'var(--neon-green)';
+                msg.style.marginTop = '0.5rem';
+                msg.textContent = '✅ Download started!';
+                deployProgress.appendChild(msg);
+                setTimeout(() => msg.remove(), 3000);
             } catch (err) {
                 // Fallback: download individually
                 Object.entries(currentFiles).forEach(([name, content]) => {
@@ -1094,7 +1262,7 @@
         });
 
         // --------------------------------------------------------------
-        // 10. LOAD PYODIDE (background)
+        // 11. LOAD PYODIDE (background)
         // --------------------------------------------------------------
         async function loadPyodideRuntime() {
             if (pyodide) return pyodide;
@@ -1112,10 +1280,8 @@
         loadPyodideRuntime();
 
         // --------------------------------------------------------------
-        // 11. EVENT BUS for loading states (optional)
+        // 12. EVENT BUS (optional)
         // --------------------------------------------------------------
-        // We'll just handle button state manually
-
         console.log('🚀 GrishteSync · Prompt2Prod ready!');
     </script>
 
