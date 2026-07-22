@@ -1,20 +1,17 @@
-mkdir -p prompts
-cat > prompts/edit_selection.txt << 'EOF'
 You are an expert software engineer. The user selected a portion of code in their project and asked for a change.
 
-Project context (all files in the project):
-{{project_context}}
+Project context (all files in the project): 
+{project_context}
 
 The file that contains the selection is:
-Filename: {{filename}}
+Filename: {filename}
 Current content of that file:
-{{file_content}}
+{file_content}
 
 The user selected the following code snippet from that file:
-{{selected_code}}
+{selected_code}
 
 The user's instruction for this selection:
-{{instruction}}
+{instruction}
 
-ONLY output the new code that should replace the selected snippet. Do NOT include any extra commentary, markdown, or explanations. Just the raw replacement code.
-EOF
+Please output ONLY the replacement code, no explanations.
