@@ -1,598 +1,1545 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GrishteSync Lite</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GrishteSync · Prompt2Prod</title>
+    <link rel="icon" type="image/png" href="https://i.ibb.co/RGmb4FKk/1781072041102.png" />
+    <!-- Pyodide CDN -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js"></script>
+    <!-- CodeMirror -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <style>
-        /* ----- RESET & BASE ----- */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        /* ================================================================
+               GLOBAL RESET & BASE (unchanged)
+            ================================================================ */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-primary: #070b17;
+            --bg-secondary: #0f1a2b;
+            --bg-card: rgba(15, 25, 45, 0.75);
+            --text-primary: #e8edf5;
+            --text-secondary: #b0c0d0;
+            --neon-cyan: #00d4ff;
+            --neon-purple: #a78bfa;
+            --neon-pink: #f472b6;
+            --neon-green: #34d399;
+            --neon-orange: #fb923c;
+            --glow-cyan: 0 0 40px rgba(0, 212, 255, 0.25);
+            --border-neon: 1px solid rgba(0, 212, 255, 0.15);
+            --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.6);
+            --transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            --card-bg: rgba(12, 12, 35, 0.5);
+        }
+
+        body.day-mode {
+            --bg-primary: #e8f0fa;
+            --bg-secondary: #d0dce8;
+            --bg-card: rgba(255, 255, 255, 0.75);
+            --text-primary: #1a2332;
+            --text-secondary: #2d3a4c;
+            --neon-cyan: #0066aa;
+            --neon-purple: #6d4fc9;
+            --neon-pink: #c0397a;
+            --neon-green: #0d9e6c;
+            --neon-orange: #c96a0a;
+            --glow-cyan: 0 0 40px rgba(0, 102, 170, 0.15);
+            --border-neon: 1px solid rgba(0, 102, 170, 0.2);
+            --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.08);
+            --card-bg: rgba(255, 255, 255, 0.65);
         }
 
         body {
-            font-family: 'Segoe UI', 'Inter', system-ui, -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
             min-height: 100vh;
+            padding: 2rem 1.5rem;
             display: flex;
             justify-content: center;
-            align-items: center;
-            background: #f7e8d0;
-            overflow: hidden;
-            padding: 20px;
+            align-items: flex-start;
+            transition: var(--transition);
             position: relative;
         }
 
-        /* ----- PALE GOLDENISH FLOWING BACKGROUND ----- */
-        .golden-bg {
+        body::before {
+            content: '';
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, #fdf4e3, #f8e3c4, #efd6b3, #f5e1c0, #faf0dd);
-            background-size: 400% 400%;
-            animation: goldenFlow 18s ease-in-out infinite alternate;
+            inset: 0;
+            background-image:
+                radial-gradient(2px 2px at 20px 30px, #eee, transparent),
+                radial-gradient(2px 2px at 40px 70px, rgba(255, 255, 255, 0.8), transparent),
+                radial-gradient(2px 2px at 50px 160px, #ddd, transparent),
+                radial-gradient(2px 2px at 90px 40px, rgba(255, 255, 255, 0.6), transparent),
+                radial-gradient(2px 2px at 130px 80px, #fff, transparent),
+                radial-gradient(2px 2px at 160px 30px, rgba(255, 255, 255, 0.7), transparent);
+            background-size: 200px 200px;
+            background-repeat: repeat;
+            opacity: 0.4;
+            pointer-events: none;
             z-index: 0;
+            transition: opacity 0.8s ease;
         }
+        body.day-mode::before { opacity: 0; }
 
-        @keyframes goldenFlow {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 30%; }
-            100% { background-position: 40% 100%; }
-        }
-
-        /* ----- CANVAS STARS ----- */
-        #starCanvas {
+        .weather {
             position: fixed;
-            top: 0;
-            left: 0;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
+            opacity: 0;
+            transition: opacity 1.5s ease;
+        }
+        body.day-mode .weather { opacity: 1; }
+        .cloud {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.7);
+            border-radius: 50%;
+            filter: blur(40px);
+            animation: float-cloud 25s linear infinite;
+        }
+        .cloud:nth-child(1) { width: 300px; height: 100px; top: 10%; left: -10%; animation-duration: 28s; }
+        .cloud:nth-child(2) { width: 400px; height: 120px; top: 30%; left: 30%; animation-duration: 32s; animation-delay: -6s; }
+        .cloud:nth-child(3) { width: 250px; height: 80px; top: 60%; left: 60%; animation-duration: 24s; animation-delay: -12s; }
+        @keyframes float-cloud {
+            0% { transform: translateX(-150px); }
+            100% { transform: translateX(calc(100vw + 200px)); }
+        }
+
+        .sun {
+            position: absolute;
+            top: 5%;
+            right: 8%;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: radial-gradient(circle, #ffdd44, #ff8800);
+            box-shadow: 0 0 80px #ffaa00, 0 0 150px #ff880066;
+            animation: pulse-sun 4s ease-in-out infinite;
+        }
+        @keyframes pulse-sun {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 80px #ffaa00, 0 0 150px #ff880066; }
+            50% { transform: scale(1.08); box-shadow: 0 0 100px #ffaa00, 0 0 200px #ff880088; }
+        }
+
+        .app-container {
+            max-width: 1100px;
             width: 100%;
-            height: 100%;
+            background: var(--bg-card);
+            backdrop-filter: blur(16px);
+            border-radius: 40px;
+            padding: 2.5rem 2.5rem 1.5rem;
+            border: var(--border-neon);
+            box-shadow: var(--glow-cyan), var(--shadow-card);
+            position: relative;
             z-index: 1;
+            transition: var(--transition);
+            overflow: hidden;
+        }
+        .app-container::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: conic-gradient(from 0deg, transparent, rgba(0, 212, 255, 0.03), transparent, rgba(167, 139, 250, 0.03), transparent);
+            animation: spin 30s linear infinite;
             pointer-events: none;
         }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* ----- MAIN CARD ----- */
-        .app-container {
+        /* ---- Header with typing tagline ---- */
+        .header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            margin-bottom: 2rem;
             position: relative;
             z-index: 2;
-            width: 100%;
-            max-width: 820px;
-            background: rgba(255, 248, 235, 0.55);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border-radius: 48px;
-            padding: 40px 44px 44px 44px;
-            box-shadow: 0 30px 60px rgba(180, 130, 70, 0.25), inset 0 1px 0 rgba(255, 245, 215, 0.8);
-            border: 1px solid rgba(255, 235, 200, 0.6);
         }
-
-        /* ----- HEADER & LOGO ----- */
-        .brand-header {
-            text-align: center;
-            margin-bottom: 12px;
+        .logo-wrapper {
+            position: relative;
+            cursor: pointer;
+            margin-bottom: 0.5rem;
+            transition: transform 0.6s ease;
         }
-
+        .logo-wrapper:hover { transform: scale(1.02); }
+        .logo-wrapper::after {
+            content: '';
+            position: absolute;
+            inset: -6px;
+            border-radius: 50%;
+            background: conic-gradient(from 0deg, var(--neon-cyan), var(--neon-purple), var(--neon-pink), var(--neon-cyan));
+            padding: 3px;
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            animation: spin-glow 6s linear infinite;
+        }
+        @keyframes spin-glow { to { transform: rotate(360deg); } }
         .logo {
-            font-size: 2.6rem;
-            font-weight: 700;
-            letter-spacing: -0.02em;
-            background: linear-gradient(145deg, #8b6f4c, #5a3f26);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            display: inline-block;
-        }
-        .logo span {
-            font-weight: 300;
-            background: linear-gradient(145deg, #b8946a, #7a5d3e);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        /* ----- TAGLINE WITH TYPING ----- */
-        .tagline-wrapper {
-            text-align: center;
-            min-height: 48px;
+            width: 96px;
+            height: 96px;
+            border-radius: 50%;
+            background: #0a0a1a;
             display: flex;
-            justify-content: center;
             align-items: center;
-            margin-bottom: 30px;
+            justify-content: center;
+            position: relative;
+            z-index: 1;
+            border: 2px solid rgba(0, 212, 255, 0.2);
+            overflow: hidden;
+            transition: transform 0.6s ease, box-shadow 0.6s ease;
+        }
+        .logo img {
+            width: 72px;
+            height: 72px;
+            object-fit: contain;
+            border-radius: 50%;
+            filter: drop-shadow(0 0 20px rgba(0, 212, 255, 0.3));
+            transition: transform 0.6s ease;
+        }
+        .logo-wrapper.rotated .logo {
+            transform: rotate(360deg) scale(1.1);
+            box-shadow: 0 0 60px rgba(0, 212, 255, 0.4);
         }
 
-        #typewriter {
-            font-size: 1.3rem;
-            font-weight: 400;
-            color: #4f3a27;
-            letter-spacing: 0.02em;
-            border-right: 2.5px solid #b28b65;
-            padding-right: 6px;
-            white-space: nowrap;
-            overflow: hidden;
-            font-style: italic;
-            background: linear-gradient(135deg, #6d523b, #a88664);
+        .brand h1 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 2.4rem;
+            font-weight: 900;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            background-clip: text;
+            text-shadow: 0 0 40px rgba(0, 212, 255, 0.15);
+            line-height: 1.2;
+            display: inline-block;
+            transition: all 0.2s;
+        }
+        .brand h1.glitch {
+            animation: glitch 0.3s ease-in-out 3;
+        }
+        @keyframes glitch {
+            0% { transform: translate(0, 0); }
+            20% { transform: translate(-2px, 1px); text-shadow: 2px 0 var(--neon-pink), -2px 0 var(--neon-cyan); }
+            40% { transform: translate(2px, -1px); text-shadow: -3px 0 var(--neon-cyan), 3px 0 var(--neon-pink); }
+            60% { transform: translate(-1px, 2px); text-shadow: 1px 0 var(--neon-purple), -1px 0 var(--neon-orange); }
+            80% { transform: translate(1px, -2px); text-shadow: -2px 0 var(--neon-orange), 2px 0 var(--neon-purple); }
+            100% { transform: translate(0, 0); text-shadow: none; }
         }
 
-        /* ----- INPUT AREA ----- */
-        .input-section {
-            margin-bottom: 18px;
-        }
-
-        textarea#promptInput {
-            width: 100%;
-            padding: 18px 22px;
-            font-size: 1rem;
-            font-family: inherit;
-            border: 1.5px solid rgba(200, 170, 130, 0.5);
-            border-radius: 20px;
-            background: rgba(255, 250, 240, 0.7);
-            backdrop-filter: blur(4px);
-            resize: vertical;
-            min-height: 80px;
-            color: #3a2c1e;
-            transition: all 0.25s ease;
-            outline: none;
-            box-shadow: inset 0 2px 8px rgba(160, 120, 70, 0.08);
-        }
-
-        textarea#promptInput:focus {
-            border-color: #c7a16b;
-            background: rgba(255, 252, 245, 0.9);
-            box-shadow: 0 0 0 4px rgba(200, 160, 110, 0.15), inset 0 2px 8px rgba(160, 120, 70, 0.05);
-        }
-
-        /* ----- BUTTONS ----- */
-        .action-bar {
+        .tagline {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.1rem;
+            letter-spacing: 3px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            margin-top: 0.25rem;
+            font-weight: 400;
+            min-height: 1.8rem;
             display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
+            align-items: center;
             justify-content: center;
-            margin: 18px 0 22px 0;
+            gap: 0.2rem;
+        }
+        .tagline .cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1.2em;
+            background: var(--neon-cyan);
+            margin-left: 4px;
+            animation: blink 0.8s step-end infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
         }
 
-        .btn {
-            padding: 10px 22px;
+        /* ---- Cards ---- */
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(8px);
+            border-radius: 28px;
+            padding: 1.75rem;
+            margin-bottom: 1.75rem;
+            border: 1px solid rgba(0, 212, 255, 0.08);
+            box-shadow: var(--shadow-card);
+            transition: border-color 0.3s, box-shadow 0.3s, max-height 0.5s ease;
+            position: relative;
+            z-index: 2;
+            overflow: hidden;
+            max-height: 2000px;
+        }
+        .card.collapsed {
+            max-height: 0 !important;
+            padding: 0 1.75rem;
+            margin: 0;
             border: none;
+            overflow: hidden;
+            opacity: 0;
+            pointer-events: none;
+            transition: max-height 0.5s ease, padding 0.3s ease, margin 0.3s ease, opacity 0.3s ease;
+        }
+        .card:hover {
+            border-color: rgba(0, 212, 255, 0.2);
+            box-shadow: var(--glow-cyan), var(--shadow-card);
+        }
+        body.day-mode .card {
+            background: rgba(255, 255, 255, 0.6);
+            border-color: rgba(0, 102, 170, 0.1);
+        }
+        body.day-mode .card:hover { border-color: rgba(0, 102, 170, 0.25); }
+
+        .card h2 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1rem;
+            font-weight: 600;
+            letter-spacing: 2px;
+            color: var(--neon-cyan);
+            margin-bottom: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+            cursor: pointer;
+            user-select: none;
+        }
+        .card h2 .toggle-icon {
+            transition: transform 0.3s;
+            font-size: 0.8rem;
+            margin-left: auto;
+        }
+        .card h2 .toggle-icon.collapsed { transform: rotate(-90deg); }
+
+        /* ---- Prompt area ---- */
+        .prompt-area {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .prompt-area textarea {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(0, 212, 255, 0.12);
+            border-radius: 20px;
+            padding: 1rem 1.2rem;
+            font-family: 'Inter', sans-serif;
+            font-size: 1rem;
+            color: var(--text-primary);
+            min-height: 100px;
+            resize: vertical;
+            transition: border-color 0.3s, box-shadow 0.3s;
+            backdrop-filter: blur(4px);
+            width: 100%;
+            line-height: 1.6;
+        }
+        body.day-mode .prompt-area textarea {
+            background: rgba(255, 255, 255, 0.7);
+            color: #1a2332;
+            border-color: rgba(0, 102, 170, 0.15);
+        }
+        .prompt-area textarea:focus {
+            outline: none;
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 30px rgba(0, 212, 255, 0.1);
+        }
+
+        .prompt-actions {
+            display: flex;
+            gap: 0.6rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .prompt-actions button {
+            background: rgba(0, 212, 255, 0.06);
+            border: 1px solid rgba(0, 212, 255, 0.12);
+            color: var(--text-secondary);
+            padding: 0.4rem 1.2rem;
+            border-radius: 30px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Inter', sans-serif;
+            backdrop-filter: blur(4px);
+        }
+        .prompt-actions button:hover {
+            background: rgba(0, 212, 255, 0.15);
+            border-color: var(--neon-cyan);
+            color: #fff;
+        }
+        body.day-mode .prompt-actions button {
+            background: rgba(0, 102, 170, 0.05);
+            color: var(--text-secondary);
+        }
+        body.day-mode .prompt-actions button:hover {
+            background: rgba(0, 102, 170, 0.12);
+            color: var(--text-primary);
+        }
+
+        .generate-btn {
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(167, 139, 250, 0.2));
+            border: 1px solid var(--neon-cyan);
+            color: #fff;
+            padding: 0.7rem 2rem;
             border-radius: 40px;
             font-weight: 600;
             font-size: 0.9rem;
-            background: rgba(235, 215, 185, 0.7);
-            backdrop-filter: blur(4px);
-            color: #4d3824;
+            letter-spacing: 1px;
+            text-transform: uppercase;
             cursor: pointer;
-            transition: all 0.2s cubic-bezier(0.2, 0.9, 0.4, 1);
-            box-shadow: 0 2px 6px rgba(150, 110, 60, 0.08);
-            border: 1px solid rgba(255, 235, 200, 0.5);
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            letter-spacing: 0.01em;
+            transition: all 0.2s;
+            font-family: 'Orbitron', sans-serif;
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        .generate-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 40px rgba(0, 212, 255, 0.25);
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.3), rgba(167, 139, 250, 0.3));
+        }
+        .generate-btn:active { transform: scale(0.96); }
+        body.day-mode .generate-btn {
+            background: linear-gradient(135deg, rgba(0, 102, 170, 0.15), rgba(109, 79, 201, 0.15));
+            border-color: var(--neon-cyan);
+            color: var(--text-primary);
+        }
+        body.day-mode .generate-btn:hover {
+            background: linear-gradient(135deg, rgba(0, 102, 170, 0.25), rgba(109, 79, 201, 0.25));
         }
 
-        .btn:hover:not(:disabled) {
-            transform: translateY(-2px) scale(1.02);
-            background: rgba(220, 190, 150, 0.85);
-            box-shadow: 0 8px 20px rgba(160, 120, 70, 0.2);
-            border-color: #dbbc8f;
+        .suggestions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
         }
-        .btn:active:not(:disabled) {
-            transform: translateY(1px) scale(0.98);
+        .suggestion-chip {
+            background: rgba(0, 212, 255, 0.05);
+            border: 1px solid rgba(0, 212, 255, 0.08);
+            padding: 0.3rem 1rem;
+            border-radius: 30px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Inter', sans-serif;
         }
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none !important;
+        .suggestion-chip:hover {
+            background: rgba(0, 212, 255, 0.12);
+            border-color: var(--neon-cyan);
+            color: #fff;
+            transform: translateY(-1px);
         }
-
-        .btn-primary {
-            background: #b68b5e;
-            color: #fff8ed;
-            border-color: #a77a4b;
-            box-shadow: 0 4px 12px rgba(180, 130, 70, 0.3);
+        body.day-mode .suggestion-chip {
+            background: rgba(0, 102, 170, 0.05);
+            color: var(--text-secondary);
         }
-        .btn-primary:hover:not(:disabled) {
-            background: #c79a6a;
-            border-color: #b88956;
-            box-shadow: 0 8px 24px rgba(180, 130, 70, 0.4);
-        }
-
-        .btn-icon {
-            font-size: 1.1rem;
-            line-height: 1;
-        }
-
-        /* ----- OUTPUT ----- */
-        .output-section {
-            margin-top: 6px;
+        body.day-mode .suggestion-chip:hover {
+            background: rgba(0, 102, 170, 0.1);
+            color: var(--text-primary);
         }
 
-        .output-header {
+        .log {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 0.75rem;
+        }
+
+        /* ---- Code Panel ---- */
+        .code-panel { display: none; }
+        .code-panel.visible { display: block; }
+
+        .editor-toolbar {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 8px;
-            padding: 0 6px;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
         }
-
-        .output-header label {
-            font-weight: 600;
-            font-size: 0.85rem;
-            color: #5f4a32;
-            letter-spacing: 0.03em;
-            text-transform: uppercase;
-            opacity: 0.7;
+        .file-tabs {
+            display: flex;
+            gap: 0.4rem;
+            flex-wrap: wrap;
         }
-
-        .status-badge {
+        .file-tab {
+            padding: 0.25rem 1rem;
+            border-radius: 30px;
             font-size: 0.75rem;
-            background: rgba(160, 200, 120, 0.25);
-            padding: 4px 14px;
-            border-radius: 40px;
-            color: #4a6a2a;
-            border: 1px solid rgba(160, 200, 120, 0.3);
-            transition: all 0.3s;
-            min-width: 70px;
-            text-align: center;
-            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid transparent;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+            background: transparent;
+            font-family: 'Inter', sans-serif;
+        }
+        .file-tab.active {
+            background: rgba(0, 212, 255, 0.12);
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+        }
+        body.day-mode .file-tab.active {
+            background: rgba(0, 102, 170, 0.1);
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+        }
+        .file-tab:hover {
+            color: #fff;
+            border-color: rgba(0, 212, 255, 0.2);
         }
 
-        #codeOutput {
+        .toolbar-actions {
+            display: flex;
+            gap: 0.4rem;
+            flex-wrap: wrap;
+        }
+        .toolbar-actions button {
+            padding: 0.3rem 1rem;
+            font-size: 0.65rem;
+        }
+
+        .editor-wrapper {
+            position: relative;
+            border-radius: 20px;
+            overflow: hidden;
+            border: 1px solid rgba(0, 212, 255, 0.06);
+        }
+        .CodeMirror {
+            height: auto;
+            min-height: 250px;
+            background: rgba(0, 0, 0, 0.3);
+            font-size: 14px;
+            font-family: 'Courier New', monospace;
+            padding: 0.5rem 0;
+        }
+        body.day-mode .CodeMirror {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .output-panel {
+            margin-top: 1rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 20px;
+            border: 1px solid rgba(0, 212, 255, 0.06);
+            padding: 1rem;
+            max-height: 250px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            color: var(--text-secondary);
+            display: none;
+        }
+        .output-panel.visible { display: block; }
+        .output-panel .stdout { color: var(--neon-green); }
+        .output-panel .stderr { color: #f85149; }
+        .output-panel .no-output { color: var(--text-secondary); font-style: italic; }
+        .output-panel .install-info { color: var(--neon-cyan); font-style: italic; }
+        .output-panel .error-msg { color: #f85149; font-weight: bold; }
+        .output-panel .review-header { color: var(--neon-purple); font-weight: bold; margin-bottom: 0.5rem; }
+        .output-panel .review-issue { color: var(--neon-orange); }
+        .output-panel .review-ok { color: var(--neon-green); }
+
+        .action-bar {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-top: 1rem;
+            align-items: center;
+        }
+        .action-bar .note {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            opacity: 0.7;
+            font-style: italic;
+            margin-left: 0.5rem;
+        }
+
+        .btn-3d {
+            position: relative;
+            display: inline-block;
+            padding: 0.6rem 1.6rem;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: #fff;
+            background: linear-gradient(145deg, #1a2a4a, #0d1a2e);
+            border: none;
+            border-radius: 40px;
+            cursor: pointer;
+            box-shadow: 0 6px 0 #0a121f, 0 8px 20px rgba(0, 0, 0, 0.4);
+            transition: all 0.08s ease;
+            transform: translateY(0);
+        }
+        .btn-3d:active {
+            transform: translateY(6px);
+            box-shadow: 0 2px 0 #0a121f, 0 8px 20px rgba(0, 0, 0, 0.3);
+        }
+        .btn-3d.primary {
+            background: linear-gradient(145deg, #0077be, #005a8c);
+            box-shadow: 0 6px 0 #003d66, 0 8px 20px rgba(0, 119, 190, 0.3);
+        }
+        .btn-3d.primary:active {
+            box-shadow: 0 2px 0 #003d66, 0 8px 20px rgba(0, 119, 190, 0.2);
+        }
+        .btn-3d.success {
+            background: linear-gradient(145deg, #0d9e6c, #0a7a52);
+            box-shadow: 0 6px 0 #065c3e, 0 8px 20px rgba(13, 158, 108, 0.3);
+        }
+        .btn-3d.success:active {
+            box-shadow: 0 2px 0 #065c3e, 0 8px 20px rgba(13, 158, 108, 0.2);
+        }
+        .btn-3d.secondary {
+            background: linear-gradient(145deg, #6d4fc9, #5539a3);
+            box-shadow: 0 6px 0 #3f2b7a, 0 8px 20px rgba(109, 79, 201, 0.3);
+        }
+        .btn-3d.secondary:active {
+            box-shadow: 0 2px 0 #3f2b7a, 0 8px 20px rgba(109, 79, 201, 0.2);
+        }
+        body.day-mode .btn-3d { color: #fff; }
+        .btn-3d:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: 0 6px 0 #0a121f, 0 8px 20px rgba(0,0,0,0.4);
+        }
+
+        /* ---- Modal ---- */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.visible { display: flex; }
+        .modal-box {
+            background: var(--bg-card);
+            border: 1px solid var(--neon-cyan);
+            border-radius: 28px;
+            padding: 2rem;
+            max-width: 600px;
+            width: 90%;
+            box-shadow: var(--glow-cyan), var(--shadow-card);
+            backdrop-filter: blur(16px);
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .modal-box h3 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.1rem;
+            color: var(--neon-cyan);
+            margin-bottom: 1rem;
+        }
+        .modal-box textarea {
             width: 100%;
-            padding: 22px 24px;
-            font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
+            min-height: 100px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(0, 212, 255, 0.15);
+            border-radius: 16px;
+            padding: 0.8rem 1rem;
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.95rem;
+            resize: vertical;
+            transition: border-color 0.3s;
+            backdrop-filter: blur(4px);
+        }
+        .modal-box textarea:focus {
+            outline: none;
+            border-color: var(--neon-cyan);
+        }
+        .modal-actions {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1rem;
+            justify-content: flex-end;
+        }
+        .modal-actions .btn-3d {
+            padding: 0.4rem 1.4rem;
+            font-size: 0.7rem;
+        }
+
+        /* ---- About modal specific styles ---- */
+        .about-content {
             font-size: 0.9rem;
             line-height: 1.7;
-            background: rgba(40, 33, 26, 0.85);
-            backdrop-filter: blur(6px);
-            color: #efe6d8;
-            border: 1px solid rgba(200, 170, 130, 0.25);
-            border-radius: 20px;
-            min-height: 160px;
-            resize: vertical;
-            outline: none;
-            box-shadow: inset 0 4px 20px rgba(0, 0, 0, 0.3);
-            white-space: pre-wrap;
-            word-break: break-word;
-            transition: all 0.2s;
+            color: var(--text-secondary);
         }
-        #codeOutput:focus {
-            border-color: #c7a16b;
-            box-shadow: inset 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 0 3px rgba(200, 160, 110, 0.15);
+        .about-content strong {
+            color: var(--text-primary);
+        }
+        .about-content .feature-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+            margin: 0.5rem 0;
+        }
+        .about-content .feature-item {
+            background: rgba(0, 212, 255, 0.05);
+            border-radius: 12px;
+            padding: 0.5rem 0.8rem;
+            font-size: 0.8rem;
+            border: 1px solid rgba(0, 212, 255, 0.06);
+        }
+        .about-content .feature-item span {
+            color: var(--neon-cyan);
+        }
+        .about-content .author-link {
+            color: var(--neon-cyan);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .about-content .author-link:hover {
+            text-decoration: underline;
+        }
+        @media (max-width: 640px) {
+            .about-content .feature-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
-        /* ----- RESPONSIVE ----- */
-        @media (max-width: 600px) {
-            .app-container {
-                padding: 24px 18px;
-                border-radius: 32px;
-            }
-            .logo {
-                font-size: 2rem;
-            }
-            #typewriter {
-                font-size: 1rem;
-                white-space: normal;
-                border-right: none;
-            }
-            .btn {
-                padding: 8px 16px;
-                font-size: 0.8rem;
-            }
+        /* ---- Progress ---- */
+        .progress-container {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 40px;
+            height: 8px;
+            margin-top: 1rem;
+            overflow: hidden;
+            display: none;
+        }
+        .progress-container.visible { display: block; }
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--neon-cyan), var(--neon-purple));
+            border-radius: 40px;
+            transition: width 0.4s ease;
+        }
+        .progress-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 0.3rem;
+            text-align: right;
+        }
+
+        /* ---- Footer ---- */
+        .footer {
+            margin-top: 2rem;
+            padding-top: 1.2rem;
+            border-top: 1px solid rgba(0, 212, 255, 0.06);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            font-size: 0.7rem;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
+            position: relative;
+            z-index: 2;
+        }
+        .footer .heart {
+            display: inline-block;
+            color: var(--neon-pink);
+            animation: pulse-heart 1.2s ease-in-out infinite;
+        }
+        @keyframes pulse-heart {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.25); }
+        }
+        .footer a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+        .footer a:hover { color: var(--neon-cyan); }
+
+        /* ---- Disclaimer ---- */
+        .disclaimer-note {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            opacity: 0.7;
+            margin-top: 0.5rem;
+            padding: 0.5rem 0.8rem;
+            border-left: 2px solid var(--neon-orange);
+            background: rgba(251, 146, 60, 0.05);
+            border-radius: 8px;
+            font-style: italic;
+        }
+
+        @media (max-width: 640px) {
+            .app-container { padding: 1.5rem 1.2rem; }
+            .brand h1 { font-size: 1.8rem; }
+            .logo { width: 72px; height: 72px; }
+            .logo img { width: 54px; height: 54px; }
+            .prompt-area textarea { min-height: 80px; }
+            .suggestions { gap: 0.3rem; }
+            .sun { width: 60px; height: 60px; right: 5%; }
+            .modal-box { padding: 1.5rem; }
         }
     </style>
 </head>
 <body>
 
-    <div class="golden-bg"></div>
-    <canvas id="starCanvas"></canvas>
-
-    <div class="app-container">
-        <div class="brand-header">
-            <div class="logo">GrishteSync <span>Lite</span></div>
-        </div>
-
-        <div class="tagline-wrapper">
-            <div id="typewriter"></div>
-        </div>
-
-        <div class="input-section">
-            <textarea id="promptInput" placeholder="Loading prompts..."></textarea>
-        </div>
-
-        <div class="action-bar">
-            <button class="btn btn-primary" id="generateBtn"><span class="btn-icon">✨</span> Generate</button>
-            <button class="btn" id="regenerateBtn"><span class="btn-icon">🔄</span> Regenerate</button>
-            <button class="btn" id="fixBtn"><span class="btn-icon">🔧</span> Fix</button>
-            <button class="btn" id="appendBtn"><span class="btn-icon">➕</span> Append</button>
-            <button class="btn" id="explainBtn"><span class="btn-icon">📖</span> Explain</button>
-            <button class="btn" id="copyBtn"><span class="btn-icon">📋</span> Copy</button>
-            <button class="btn" id="clearBtn"><span class="btn-icon">🗑️</span> Clear</button>
-        </div>
-
-        <div class="output-section">
-            <div class="output-header">
-                <label>⚡ Output</label>
-                <span class="status-badge" id="statusBadge">Ready</span>
-            </div>
-            <textarea id="codeOutput" placeholder="Your code will stream here..." readonly></textarea>
-        </div>
+    <!-- Weather -->
+    <div class="weather">
+        <div class="cloud"></div>
+        <div class="cloud"></div>
+        <div class="cloud"></div>
+        <div class="sun"></div>
     </div>
 
-    <script>
-        // =============================================================
-        // 1. GLOWING STARS (Canvas)
-        // =============================================================
-        const canvas = document.getElementById('starCanvas');
-        const ctx = canvas.getContext('2d');
-        let width, height, stars = [];
+    <div class="app-container">
 
-        function resizeCanvas() {
-            width = window.innerWidth;
-            height = window.innerHeight;
-            canvas.width = width;
-            canvas.height = height;
-        }
-        window.addEventListener('resize', () => { resizeCanvas();
-            initStars(); });
+        <!-- HEADER -->
+        <header class="header">
+            <div class="logo-wrapper" id="logoWrapper">
+                <div class="logo">
+                    <img src="https://i.ibb.co/RGmb4FKk/1781072041102.png" alt="GrishteSync Logo" />
+                </div>
+            </div>
+            <div class="brand">
+                <h1 id="brandTitle">GrishteSync</h1>
+                <div class="tagline" id="tagline">
+                    <span id="typedText"></span><span class="cursor" id="cursor"></span>
+                </div>
+                <!-- About button in header -->
+                <button id="aboutBtn" class="btn-3d secondary" style="margin-top:0.5rem;padding:0.3rem 1.2rem;font-size:0.6rem;">ℹ️ About</button>
+            </div>
+        </header>
 
-        class Star {
-            constructor() { this.reset();
-                this.driftX = (Math.random() - 0.5) * 0.15;
-                this.driftY = (Math.random() - 0.5) * 0.15; }
-            reset() {
-                this.x = Math.random() * width;
-                this.y = Math.random() * height;
-                this.radius = Math.random() * 3.2 + 0.8;
-                this.opacity = Math.random() * 0.6 + 0.3;
-                this.twinkleSpeed = 0.008 + Math.random() * 0.025;
-                this.phase = Math.random() * Math.PI * 2;
-                this.hue = 30 + Math.random() * 30;
-                this.saturation = 40 + Math.random() * 40;
-                this.lightness = 75 + Math.random() * 20;
-            }
-            update() {
-                this.x += this.driftX;
-                this.y += this.driftY;
-                if (this.x < -10) this.x = width + 10;
-                if (this.x > width + 10) this.x = -10;
-                if (this.y < -10) this.y = height + 10;
-                if (this.y > height + 10) this.y = -10;
-                this.phase += this.twinkleSpeed;
-            }
-            draw() {
-                const alpha = this.opacity * (0.6 + 0.4 * Math.sin(this.phase));
-                const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius * 2.5);
-                grad.addColorStop(0, `hsla(${this.hue}, ${this.saturation}%, ${this.lightness}%, ${alpha})`);
-                grad.addColorStop(0.4, `hsla(${this.hue}, ${this.saturation}%, ${this.lightness}%, ${alpha * 0.4})`);
-                grad.addColorStop(1, `hsla(${this.hue}, ${this.saturation}%, ${this.lightness}%, 0)`);
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.radius * 2.5, 0, Math.PI * 2);
-                ctx.fillStyle = grad;
-                ctx.fill();
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.radius * 0.6, 0, Math.PI * 2);
-                ctx.fillStyle = `hsla(45, 80%, 95%, ${alpha * 0.9})`;
-                ctx.fill();
-            }
-        }
+        <!-- Prompt Card -->
+        <div class="card" id="promptCard">
+            <h2 id="promptToggle">
+                ⚡ Forge Your Code
+                <span class="toggle-icon" id="promptToggleIcon">▾</span>
+            </h2>
+            <div class="prompt-area" id="promptContent">
+                <textarea id="genPrompt" placeholder="Describe what you want to build...">Create a Python script that prints a random fact about space</textarea>
+                <div class="prompt-actions">
+                    <button id="clearBtn" class="btn-3d" style="padding:0.3rem 1rem;font-size:0.7rem;">✕ Clear</button>
+                    <button id="pasteBtn" class="btn-3d" style="padding:0.3rem 1rem;font-size:0.7rem;">📋 Paste</button>
+                    <button id="genBtn" class="generate-btn" style="margin-left:auto;">🚀 Generate</button>
+                    <!-- Regenerate button (small, next to Generate) -->
+                    <button id="regenerateBtn" class="btn-3d secondary" style="padding:0.3rem 1rem;font-size:0.7rem;display:none;">🔄 Regenerate</button>
+                </div>
+                <div class="suggestions" id="suggestionChips">
+                    <span class="suggestion-chip" data-prompt="Create a Flask web app with a REST API">Flask API</span>
+                    <span class="suggestion-chip" data-prompt="Build a web scraper using requests and BeautifulSoup">Web Scraper</span>
+                    <span class="suggestion-chip" data-prompt="Write a Python script to analyze CSV data with pandas">Data Analysis</span>
+                    <span class="suggestion-chip" data-prompt="Create a Telegram bot with python-telegram-bot">Telegram Bot</span>
+                    <span class="suggestion-chip" data-prompt="Build a machine learning model with scikit-learn">ML Model</span>
+                    <span class="suggestion-chip" data-prompt="Create a to-do list CLI app with argparse">CLI App</span>
+                </div>
+                <div class="log" id="genLog">⚡ Ready to forge.</div>
+            </div>
+        </div>
 
-        function initStars() {
-            stars = [];
-            const count = Math.min(180, Math.floor((width * height) / 5000));
-            for (let i = 0; i < count; i++) stars.push(new Star());
-        }
+        <!-- Code + Output Card -->
+        <div class="card code-panel" id="codePanel">
+            <h2 style="cursor:default;">📄 Code &amp; Output</h2>
+            <div class="editor-toolbar">
+                <div class="file-tabs" id="fileTabs"></div>
+                <div class="toolbar-actions">
+                    <button id="reviewBtn" class="btn-3d secondary" style="padding:0.3rem 1rem;font-size:0.65rem;display:none;">🔍 Review</button>
+                    <button id="editBtn" class="btn-3d primary" style="padding:0.3rem 1rem;font-size:0.65rem;display:none;">💬 Re-Prompt Selection</button>
+                    <button id="runBtn" class="btn-3d success" style="padding:0.3rem 1.2rem;font-size:0.7rem;display:none;">▶ Run</button>
+                </div>
+            </div>
+            <div class="editor-wrapper">
+                <textarea id="codeEditor" style="display:none;"></textarea>
+            </div>
+            <div class="output-panel" id="outputPanel">
+                <div id="outputContent" style="white-space:pre-wrap;"></div>
+            </div>
+            <div class="action-bar">
+                <button id="exportBtn" class="btn-3d success" style="display:none;">📦 Export Project</button>
+                <button id="downloadBtn" class="btn-3d primary" style="display:none;">📥 Export as ZIP</button>
+                <span class="note" id="noteMsg">💡 Generated project can be exported as a ZIP.</span>
+                <span id="fileStatus" style="font-size:0.75rem;color:var(--text-secondary);margin-left:0.5rem;"></span>
+            </div>
+            <!-- Disclaimer -->
+            <div class="disclaimer-note">
+                ⚠️ Some projects may not run due to unsupported libraries in this sandbox. Try running in <a href="https://huggingface.co/spaces" target="_blank" style="color:var(--neon-cyan);">Hugging Face Spaces</a> or other Python emulators for full compatibility.
+            </div>
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar" id="progressBar"></div>
+                <div class="progress-label" id="progressLabel">0%</div>
+            </div>
+        </div>
 
-        function animateStars() {
-            ctx.clearRect(0, 0, width, height);
-            for (let star of stars) { star.update();
-                star.draw(); }
-            requestAnimationFrame(animateStars);
-        }
-        resizeCanvas();
-        initStars();
-        animateStars();
+        <!-- About Modal -->
+        <div class="modal-overlay" id="aboutModal">
+            <div class="modal-box">
+                <h3>ℹ️ About GrishteSync</h3>
+                <div class="about-content">
+                    <p><strong>How it works</strong><br/>
+                    Describe your project in plain English, and GrishteSync's AI (powered by Groq) generates a complete codebase instantly. You can review, edit, run, and export the generated files.</p>
 
-        // =============================================================
-        // 2. UNIVERSAL TYPING EFFECT (Works on any element)
-        // =============================================================
-        function typeText(element, text, speed = 12) {
-            return new Promise((resolve) => {
-                // Handle textarea vs regular elements
-                const isTextarea = element.tagName === 'TEXTAREA';
-                if (isTextarea) {
-                    element.value = '';
-                } else {
-                    element.textContent = '';
-                }
+                    <div class="feature-grid">
+                        <div class="feature-item"><span>⚡</span> AI Code Generation</div>
+                        <div class="feature-item"><span>🔍</span> Code Review</div>
+                        <div class="feature-item"><span>💬</span> Re-Prompt Selection</div>
+                        <div class="feature-item"><span>▶️</span> In-browser Python Runner</div>
+                        <div class="feature-item"><span>📦</span> Export as ZIP</div>
+                        <div class="feature-item"><span>🌓</span> Dark / Light mode</div>
+                    </div>
 
-                let i = 0;
-                const interval = setInterval(() => {
-                    if (i < text.length) {
-                        if (isTextarea) {
-                            element.value += text.charAt(i);
-                            element.scrollTop = element.scrollHeight; // Auto-scroll
-                        } else {
-                            element.textContent += text.charAt(i);
-                        }
-                        i++;
-                    } else {
-                        clearInterval(interval);
-                        resolve();
-                    }
-                }, speed);
-            });
-        }
+                    <p><strong>About the Author</strong><br/>
+                    Built with 🩷 by <strong>Sai Varakala</strong> (<a href="https://github.com/suryasticsai" target="_blank" class="author-link">@suryasticsai</a>).</p>
 
-        // =============================================================
-        // 3. TAGLINE LOOP (State of the art! just prompt it!)
-        // =============================================================
-        const tagline = "State of the art! just prompt it!";
-        const typewriterEl = document.getElementById('typewriter');
-        let charIndex = 0,
-            isDeleting = false;
+                    <p><strong>Production‑grade app</strong><br/>
+                    Try the full‑featured version at <a href="https://suryasticsai.github.io/GrishteSync/" target="_blank" class="author-link">suryasticsai.github.io/GrishteSync</a>.</p>
 
-        async function taglineLoop() {
-            while (true) { // Infinite loop
-                if (!isDeleting) {
-                    if (charIndex < tagline.length) {
-                        typewriterEl.textContent = tagline.substring(0, charIndex + 1);
-                        charIndex++;
-                        await sleep(55 + Math.random() * 40);
-                    } else {
+                    <div style="margin-top:0.5rem;display:flex;gap:0.8rem;flex-wrap:wrap;">
+                        <a href="https://github.com/suryasticsai/grishtesync-backend" target="_blank" class="author-link">GitHub Repo</a>
+                        <a href="https://suryasticsai.github.io/GrishteSync/" target="_blank" class="author-link">Production App</a>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="aboutClose" class="btn-3d primary">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Re-Prompt Selection Modal -->
+        <div class="modal-overlay" id="editModal">
+            <div class="modal-box">
+                <h3>💬 Re-Prompt Selection</h3>
+                <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:0.5rem;">
+                    Describe the change you want to apply to the selected code.
+                </p>
+                <textarea id="editInstruction" placeholder="e.g. Add error handling, rename variables, optimize this loop..."></textarea>
+                <div class="modal-actions">
+                    <button id="modalCancel" class="btn-3d" style="background:#3d1a1a;box-shadow:0 6px 0 #1a0a0a;">Cancel</button>
+                    <button id="modalApply" class="btn-3d primary">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- FOOTER -->
+        <footer class="footer">
+            <span>© 2025-2026 <a href="https://github.com/suryasticsai" target="_blank">Suryasticsai</a></span>
+            <span>Made with <span class="heart">🩷</span> by <a href="https://github.com/suryasticsai" target="_blank">@suryasticsai</a></span>
+            <span>
+                <a href="https://github.com/suryasticsai/grishtesync-backend" target="_blank">GitHub</a> &middot;
+                <a href="https://suryasticsai.github.io/GrishteSync/" target="_blank">Production</a>
+            </span>
+        </footer>
+    </div>
+
+    <script type="module">
+        // ---- Core imports ----
+        import {
+            generateCode,
+            reviewCode,
+            editSelection,
+        } from "https://cdn.jsdelivr.net/gh/suryasticsai/grishtesync-backend@main/static/grishtesync-client.js";
+
+        // ---- Typing effect ----
+        const taglineText = "Your state of the art! Just prompt it!";
+        const typedSpan = document.getElementById('typedText');
+        const cursorSpan = document.getElementById('cursor');
+        let index = 0;
+        let isDeleting = false;
+
+        function typeEffect() {
+            if (!isDeleting) {
+                typedSpan.textContent = taglineText.substring(0, index + 1);
+                index++;
+                if (index === taglineText.length) {
+                    setTimeout(() => {
                         isDeleting = true;
-                        await sleep(3500);
-                    }
-                } else {
-                    if (charIndex > 0) {
-                        typewriterEl.textContent = tagline.substring(0, charIndex - 1);
-                        charIndex--;
-                        await sleep(25 + Math.random() * 20);
-                    } else {
-                        isDeleting = false;
-                        await sleep(600);
-                    }
+                        setTimeout(typeEffect, 2000);
+                    }, 2000);
+                    return;
                 }
-            }
-        }
-
-        function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-        // Start tagline loop
-        taglineLoop();
-
-        // =============================================================
-        // 4. CYCLING PLACEHOLDERS (Typing effect on input)
-        // =============================================================
-        const promptInput = document.getElementById('promptInput');
-        const placeholders = [
-            "Describe your code... e.g., 'Write a React login form'",
-            "Try: 'Python function to reverse a string'",
-            "Or: 'Fetch data from an API in JavaScript'",
-            "How about: 'CSS animation for a loading spinner'"
-        ];
-        let phIndex = 0;
-
-        async function cyclePlaceholders() {
-            while (true) {
-                const currentText = placeholders[phIndex];
-                // Type it in
-                promptInput.placeholder = '';
-                for (let char of currentText) {
-                    promptInput.placeholder += char;
-                    await sleep(30);
-                }
-                await sleep(3000);
-                // Erase it
-                for (let i = currentText.length; i >= 0; i--) {
-                    promptInput.placeholder = currentText.substring(0, i);
-                    await sleep(15);
-                }
-                await sleep(400);
-                phIndex = (phIndex + 1) % placeholders.length;
-            }
-        }
-        cyclePlaceholders();
-
-        // =============================================================
-        // 5. APP LOGIC (with Streaming Typing for Code & Badge)
-        // =============================================================
-        const codeOutput = document.getElementById('codeOutput');
-        const statusBadge = document.getElementById('statusBadge');
-        const buttons = document.querySelectorAll('.btn');
-
-        // Mock AI Responses
-        function getMockResponse(promptText, action = 'generate') {
-            const lower = promptText.toLowerCase();
-            let base = '// ✨ AI-generated code\n';
-
-            if (lower.includes('react') && lower.includes('login')) {
-                base = `import React, { useState } from 'react';\n\nconst LoginForm = () => {\n  const [email, setEmail] = useState('');\n  const [password, setPassword] = useState('');\n\n  const handleSubmit = (e) => {\n    e.preventDefault();\n    console.log('Logging in with', email, password);\n  };\n\n  return (\n    <form onSubmit={handleSubmit}>\n      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />\n      <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" />\n      <button type="submit">Login</button>\n    </form>\n  );\n};\n\nexport default LoginForm;`;
-            } else if (lower.includes('python') && lower.includes('reverse')) {
-                base = `def reverse_string(s: str) -> str:\n    """Reverses a given string using slicing."""\n    return s[::-1]\n\n# Example usage:\n# print(reverse_string("hello"))  # Output: "olleh"`;
-            } else if (lower.includes('api') || lower.includes('fetch')) {
-                base = `async function fetchData(url) {\n  try {\n    const response = await fetch(url);\n    if (!response.ok) throw new Error('Network error');\n    const data = await response.json();\n    return data;\n  } catch (error) {\n    console.error('Fetch failed:', error);\n    return null;\n  }\n}`;
+                setTimeout(typeEffect, 80 + Math.random() * 40);
             } else {
-                base = `// 🤖 Generating code for: "${promptText.slice(0, 40)}${promptText.length > 40 ? '...' : ''}"\n// ----------------------------------------\nfunction solution(input) {\n  // TODO: Implement your logic here\n  console.log('Processing:', input);\n  return input;\n}`;
+                typedSpan.textContent = taglineText.substring(0, index - 1);
+                index--;
+                if (index === 0) {
+                    isDeleting = false;
+                    setTimeout(typeEffect, 500);
+                    return;
+                }
+                setTimeout(typeEffect, 40 + Math.random() * 30);
             }
+        }
+        setTimeout(typeEffect, 600);
 
-            if (action === 'fix') {
-                return base + '\n\n// 🔧 FIX: Added null checks and error boundaries for safety.';
-            } else if (action === 'append') {
-                return base + '\n\n// ➕ APPEND: Additional helper function\nfunction helper() {\n  console.log("Appended feature ready!");\n}';
-            } else if (action === 'explain') {
-                return base + '\n\n/* 📖 EXPLANATION: \n   This code handles the core logic efficiently. \n   It uses modern syntax and follows best practices.\n*/';
-            } else if (action === 'regenerate') {
-                return base + '\n\n// 🔄 Regenerated with an alternative approach (caching added).';
-            }
-            return base;
+        // ---- DOM refs ----
+        const $ = id => document.getElementById(id);
+        const genBtn = $('genBtn');
+        const genPrompt = $('genPrompt');
+        const genLog = $('genLog');
+        const clearBtn = $('clearBtn');
+        const pasteBtn = $('pasteBtn');
+        const suggestionChips = document.querySelectorAll('.suggestion-chip');
+        const promptToggle = $('promptToggle');
+        const promptToggleIcon = $('promptToggleIcon');
+        const promptContent = $('promptContent');
+        const codePanel = $('codePanel');
+        const fileTabs = $('fileTabs');
+        const exportBtn = $('exportBtn');
+        const downloadBtn = $('downloadBtn');
+        const runBtn = $('runBtn');
+        const reviewBtn = $('reviewBtn');
+        const editBtn = $('editBtn');
+        const regenerateBtn = $('regenerateBtn');
+        const outputPanel = $('outputPanel');
+        const outputContent = $('outputContent');
+        const fileStatus = $('fileStatus');
+        const progressContainer = $('progressContainer');
+        const progressBar = $('progressBar');
+        const progressLabel = $('progressLabel');
+        const noteMsg = $('noteMsg');
+        const logoWrapper = $('logoWrapper');
+        const brandTitle = $('brandTitle');
+        const body = document.body;
+        const aboutBtn = $('aboutBtn');
+        const aboutModal = $('aboutModal');
+        const aboutClose = $('aboutClose');
+
+        // Modal refs for edit
+        const editModal = $('editModal');
+        const editInstruction = $('editInstruction');
+        const modalCancel = $('modalCancel');
+        const modalApply = $('modalApply');
+
+        let currentFiles = {};
+        let currentFile = '';
+        let pyodide = null;
+        let isProcessing = false;
+        let audioCtx = null;
+        let editor = null;
+        let pyodideReady = false;
+        let lastPrompt = '';
+
+        // ---- Helper: strip markdown code fences ----
+        function stripCodeFences(text) {
+            if (!text) return text;
+            return text.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '').trim();
         }
 
-        async function performAction(actionType) {
-            const prompt = promptInput.value.trim();
-            if (!prompt && actionType !== 'clear' && actionType !== 'copy') {
-                await typeText(statusBadge, '⚠️ Prompt empty!', 40);
+        // ---- Audio click ----
+        function playClick() {
+            if (!audioCtx) audioCtx = new(window.AudioContext || window.webkitAudioContext)();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.08);
+            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+            osc.start(audioCtx.currentTime);
+            osc.stop(audioCtx.currentTime + 0.08);
+        }
+        document.querySelectorAll('button').forEach(b => b.addEventListener('click', playClick));
+
+        // ---- Theme toggle ----
+        let isDay = false;
+        logoWrapper.addEventListener('click', () => {
+            logoWrapper.classList.toggle('rotated');
+            isDay = !isDay;
+            body.classList.toggle('day-mode', isDay);
+            brandTitle.classList.remove('glitch');
+            void brandTitle.offsetWidth;
+            brandTitle.classList.add('glitch');
+            setTimeout(() => brandTitle.classList.remove('glitch'), 1000);
+            if (isDay) playChirp();
+        });
+
+        function playChirp() {
+            if (!audioCtx) audioCtx = new(window.AudioContext || window.webkitAudioContext)();
+            const now = audioCtx.currentTime;
+            const osc1 = audioCtx.createOscillator();
+            const gain1 = audioCtx.createGain();
+            osc1.connect(gain1);
+            gain1.connect(audioCtx.destination);
+            osc1.frequency.setValueAtTime(2000, now);
+            osc1.frequency.exponentialRampToValueAtTime(4000, now + 0.05);
+            osc1.frequency.exponentialRampToValueAtTime(3000, now + 0.1);
+            gain1.gain.setValueAtTime(0, now);
+            gain1.gain.linearRampToValueAtTime(0.2, now + 0.02);
+            gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+            osc1.start(now);
+            osc1.stop(now + 0.15);
+            const now2 = now + 0.2;
+            const osc2 = audioCtx.createOscillator();
+            const gain2 = audioCtx.createGain();
+            osc2.connect(gain2);
+            gain2.connect(audioCtx.destination);
+            osc2.frequency.setValueAtTime(2500, now2);
+            osc2.frequency.exponentialRampToValueAtTime(5000, now2 + 0.04);
+            osc2.frequency.exponentialRampToValueAtTime(3500, now2 + 0.08);
+            gain2.gain.setValueAtTime(0, now2);
+            gain2.gain.linearRampToValueAtTime(0.15, now2 + 0.02);
+            gain2.gain.exponentialRampToValueAtTime(0.001, now2 + 0.12);
+            osc2.start(now2);
+            osc2.stop(now2 + 0.12);
+        }
+
+        // ---- About modal ----
+        aboutBtn.addEventListener('click', () => {
+            aboutModal.classList.add('visible');
+        });
+        aboutClose.addEventListener('click', () => {
+            aboutModal.classList.remove('visible');
+        });
+        aboutModal.addEventListener('click', (e) => {
+            if (e.target === aboutModal) aboutModal.classList.remove('visible');
+        });
+
+        // ---- Prompt collapse ----
+        promptToggle.addEventListener('click', () => {
+            const isCollapsed = promptContent.style.display === 'none';
+            promptContent.style.display = isCollapsed ? 'flex' : 'none';
+            promptToggleIcon.classList.toggle('collapsed', !isCollapsed);
+            promptToggleIcon.textContent = isCollapsed ? '▾' : '▸';
+        });
+
+        // ---- Prompt actions ----
+        clearBtn.addEventListener('click', () => { genPrompt.value = ''; genPrompt.focus(); });
+        pasteBtn.addEventListener('click', async () => {
+            try {
+                const text = await navigator.clipboard.readText();
+                genPrompt.value = text;
+                genPrompt.focus();
+            } catch { genPrompt.focus(); document.execCommand('paste'); }
+        });
+        suggestionChips.forEach(chip => {
+            chip.addEventListener('click', () => {
+                genPrompt.value = chip.dataset.prompt;
+                genPrompt.focus();
+            });
+        });
+        genPrompt.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); genBtn.click(); }
+        });
+
+        // ---- Generate / Regenerate ----
+        async function performGenerate(prompt) {
+            if (!prompt || !prompt.trim()) {
+                genLog.innerHTML = '<span style="color:#f85149;">❌ Please enter a prompt.</span>';
                 return;
             }
+            genLog.innerHTML = '⏳ Forging your code...';
+            codePanel.classList.remove('visible');
+            runBtn.style.display = 'none';
+            reviewBtn.style.display = 'none';
+            editBtn.style.display = 'none';
+            exportBtn.style.display = 'none';
+            downloadBtn.style.display = 'none';
+            outputPanel.classList.remove('visible');
+            progressContainer.classList.remove('visible');
+            outputContent.textContent = '';
+            regenerateBtn.style.display = 'none';
 
-            // Disable all buttons during streaming
-            buttons.forEach(btn => btn.disabled = true);
-
-            let statusMsg = 'Generating...';
-            if (actionType === 'regenerate') statusMsg = 'Regenerating...';
-            else if (actionType === 'fix') statusMsg = 'Fixing...';
-            else if (actionType === 'append') statusMsg = 'Appending...';
-            else if (actionType === 'explain') statusMsg = 'Explaining...';
-
-            await typeText(statusBadge, statusMsg, 50);
-
-            // Simulate network delay
-            await sleep(300 + Math.random() * 400);
-
-            const response = getMockResponse(prompt, actionType);
-            await typeText(codeOutput, response, 10); // Stream the code!
-
-            // Update status badge to success with typing effect
-            const doneMsg = actionType.charAt(0).toUpperCase() + actionType.slice(1) + ' ✅';
-            await typeText(statusBadge, doneMsg, 40);
-
-            // Re-enable buttons
-            buttons.forEach(btn => btn.disabled = false);
+            try {
+                const result = await generateCode(prompt);
+                currentFiles = result.files || {};
+                const count = Object.keys(currentFiles).length;
+                if (count === 0) {
+                    genLog.innerHTML = '<span style="color:#f85149;">❌ No files forged.</span>';
+                    return;
+                }
+                codePanel.classList.add('visible');
+                renderFiles(currentFiles);
+                genLog.innerHTML = `<span style="color:#34d399;">✅ Forged ${count} files in ${result.generate_time || '?'}s.</span>`;
+                runBtn.style.display = 'inline-block';
+                reviewBtn.style.display = 'inline-block';
+                editBtn.style.display = 'inline-block';
+                exportBtn.style.display = 'inline-block';
+                regenerateBtn.style.display = 'inline-block';
+                noteMsg.textContent = '💡 Generated project — you can review, re-prompt selections, run, or export it.';
+                if (editor) {
+                    editor.setValue(currentFiles[currentFile] || '');
+                    editor.refresh();
+                }
+                outputPanel.classList.remove('visible');
+                // Store last prompt
+                lastPrompt = prompt;
+            } catch (err) {
+                genLog.innerHTML = `<span style="color:#f85149;">❌ ${err.message}</span>`;
+            }
         }
 
-        // ---- Button Listeners ----
-        document.getElementById('generateBtn').addEventListener('click', () => performAction('generate'));
-        document.getElementById('regenerateBtn').addEventListener('click', () => performAction('regenerate'));
-        document.getElementById('fixBtn').addEventListener('click', () => performAction('fix'));
-        document.getElementById('appendBtn').addEventListener('click', () => performAction('append'));
-        document.getElementById('explainBtn').addEventListener('click', () => performAction('explain'));
+        genBtn.addEventListener('click', async () => {
+            const prompt = genPrompt.value.trim();
+            if (!prompt) {
+                genLog.innerHTML = '<span style="color:#f85149;">❌ Please enter a prompt.</span>';
+                return;
+            }
+            await performGenerate(prompt);
+        });
 
-        document.getElementById('copyBtn').addEventListener('click', async () => {
-            if (codeOutput.value) {
-                navigator.clipboard.writeText(codeOutput.value).then(() => {
-                    typeText(statusBadge, 'Copied! 📋', 40);
-                    setTimeout(() => typeText(statusBadge, 'Ready', 30), 1500);
-                }).catch(() => {
-                    typeText(statusBadge, 'Copy failed', 40);
-                });
+        regenerateBtn.addEventListener('click', async () => {
+            if (lastPrompt) {
+                genPrompt.value = lastPrompt;
+                await performGenerate(lastPrompt);
             } else {
-                typeText(statusBadge, 'Nothing to copy', 40);
+                genLog.innerHTML = '<span style="color:#f85149;">⚠️ No previous prompt to regenerate.</span>';
             }
         });
 
-        document.getElementById('clearBtn').addEventListener('click', async () => {
-            codeOutput.value = '';
-            await typeText(statusBadge, 'Cleared 🗑️', 40);
-            setTimeout(() => typeText(statusBadge, 'Ready', 30), 800);
+        // ---- Render files ----
+        function renderFiles(files) {
+            const names = Object.keys(files);
+            if (!names.length) return;
+            fileTabs.innerHTML = '';
+            names.forEach((name, idx) => {
+                const tab = document.createElement('span');
+                tab.className = 'file-tab' + (idx === 0 ? ' active' : '');
+                const isPy = name.endsWith('.py');
+                tab.textContent = `${name} ${isPy ? '🐍' : '📄'}`;
+                tab.dataset.filename = name;
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.file-tab').forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    switchFile(name);
+                });
+                fileTabs.appendChild(tab);
+            });
+            if (!editor) {
+                const textarea = document.querySelector('#codeEditor');
+                editor = CodeMirror.fromTextArea(textarea, {
+                    mode: 'python',
+                    lineNumbers: true,
+                    theme: 'default',
+                    indentUnit: 4,
+                    tabSize: 4,
+                    lineWrapping: true,
+                    extraKeys: { 'Tab': 'indentMore' }
+                });
+                editor.on('change', () => {
+                    if (currentFile && currentFiles[currentFile] !== undefined) {
+                        currentFiles[currentFile] = editor.getValue();
+                    }
+                });
+                editor.setSize(null, 'auto');
+            }
+            const first = names[0];
+            switchFile(first);
+        }
+
+        function switchFile(filename) {
+            currentFile = filename;
+            fileStatus.textContent = `Editing: ${filename}`;
+            if (editor) {
+                editor.setValue(currentFiles[filename] || '');
+                editor.refresh();
+            }
+            document.querySelectorAll('.file-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.filename === filename);
+            });
+            runBtn.style.display = filename.endsWith('.py') ? 'inline-block' : 'none';
+            outputPanel.classList.remove('visible');
+            outputContent.textContent = '';
+        }
+
+        // ---- Load Pyodide ----
+        async function loadPyodideWithRetry() {
+            if (pyodideReady) return true;
+            try {
+                outputContent.textContent = '⏳ Loading Python runtime (Pyodide)...';
+                outputPanel.classList.add('visible');
+                pyodide = await globalThis.loadPyodide({
+                    indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.1/full/'
+                });
+                pyodideReady = true;
+                outputContent.textContent = '✅ Python runtime loaded.';
+                return true;
+            } catch (e) {
+                outputContent.textContent = `❌ Failed to load Pyodide: ${e.message}`;
+                console.error('Pyodide load error:', e);
+                return false;
+            }
+        }
+
+        // ---- REVIEW CODE ----
+        reviewBtn.addEventListener('click', async () => {
+            if (!currentFiles || Object.keys(currentFiles).length === 0) {
+                outputContent.textContent = '⚠️ No files to review. Generate code first.';
+                outputPanel.classList.add('visible');
+                return;
+            }
+            outputPanel.classList.add('visible');
+            outputContent.textContent = '⏳ Reviewing all files...';
+            try {
+                const result = await reviewCode(currentFiles);
+                let msg = '';
+                if (result.status === 'success') {
+                    msg = '✅ No issues found. All files look clean!';
+                } else {
+                    const issues = result.issues || [];
+                    if (issues.length === 0) {
+                        msg = '✅ No issues found.';
+                    } else {
+                        msg = `⚠️ Found ${issues.length} issue(s):\n\n`;
+                        issues.forEach((issue, i) => {
+                            msg += `  ${i+1}. ${issue}\n`;
+                        });
+                    }
+                }
+                outputContent.textContent = '📋 Review Results:\n' + msg;
+                outputContent.style.color = result.status === 'warning' ? 'var(--neon-orange)' : 'var(--text-secondary)';
+            } catch (err) {
+                outputContent.textContent = `❌ Review failed: ${err.message}`;
+                outputContent.style.color = '#f85149';
+            }
         });
 
-        // Initial ready state
-        typeText(statusBadge, 'Ready', 30);
+        // ---- RE-PROMPT SELECTION (formerly Edit Selection) ----
+        editBtn.addEventListener('click', () => {
+            if (!editor) return;
+            const selected = editor.getSelection();
+            if (!selected) {
+                alert('Please select some code in the editor first.');
+                return;
+            }
+            editModal.classList.add('visible');
+            editInstruction.value = '';
+            editInstruction.focus();
+            editModal.dataset.selected = selected;
+        });
+
+        modalCancel.addEventListener('click', () => {
+            editModal.classList.remove('visible');
+        });
+        editModal.addEventListener('click', (e) => {
+            if (e.target === editModal) editModal.classList.remove('visible');
+        });
+
+        modalApply.addEventListener('click', async () => {
+            const instruction = editInstruction.value.trim();
+            if (!instruction) {
+                alert('Please describe the change you want.');
+                return;
+            }
+            const selected = editModal.dataset.selected;
+            const filename = currentFile;
+            const allFiles = currentFiles;
+
+            editModal.classList.remove('visible');
+
+            outputPanel.classList.add('visible');
+            outputContent.textContent = '⏳ Applying re-prompt...';
+
+            try {
+                const result = await editSelection(
+                    instruction,
+                    selected,
+                    filename,
+                    allFiles,
+                    null
+                );
+                let replacement = result.replacement || result;
+                replacement = stripCodeFences(replacement);
+
+                if (editor) {
+                    const from = editor.getCursor(true);
+                    const to = editor.getCursor(false);
+                    editor.replaceRange(replacement, from, to);
+                    currentFiles[filename] = editor.getValue();
+                }
+                outputContent.textContent = '✅ Re-prompt applied successfully!';
+            } catch (err) {
+                outputContent.textContent = `❌ Re-prompt failed: ${err.message}`;
+            }
+        });
+
+        // ---- RUN (auto-install) ----
+        runBtn.addEventListener('click', async () => {
+            if (!currentFile || !currentFiles[currentFile]) return;
+            if (!currentFile.endsWith('.py')) {
+                outputContent.textContent = '⚠️ Only Python files can be executed.';
+                outputPanel.classList.add('visible');
+                return;
+            }
+            if (!pyodideReady) {
+                const loaded = await loadPyodideWithRetry();
+                if (!loaded) return;
+            }
+            let micropip = null;
+            try {
+                micropip = pyodide.pyimport('micropip');
+            } catch {
+                try {
+                    await pyodide.loadPackage('micropip');
+                    micropip = pyodide.pyimport('micropip');
+                } catch (e) {
+                    outputContent.textContent = `❌ Failed to load micropip: ${e.message}`;
+                    outputPanel.classList.add('visible');
+                    return;
+                }
+            }
+            const code = currentFiles[currentFile];
+            outputPanel.classList.add('visible');
+            outputContent.textContent = '⏳ Running ...';
+
+            const runWithAutoInstall = async () => {
+                pyodide.runPython(`
+import sys
+from io import StringIO
+sys.stdout = StringIO()
+sys.stderr = StringIO()
+                `);
+                let missingModule = null;
+                try {
+                    pyodide.runPython(code);
+                } catch (err) {
+                    const errMsg = String(err);
+                    const match = errMsg.match(/ModuleNotFoundError: No module named ['"]([^'"]+)['"]/);
+                    if (match) {
+                        missingModule = match[1];
+                        try {
+                            outputContent.textContent = `📦 Missing module "${missingModule}". Attempting to install...`;
+                            await micropip.install(missingModule);
+                            outputContent.textContent += `\n✅ Installed "${missingModule}". Re-running...`;
+                            pyodide.runPython(`
+sys.stdout = StringIO()
+sys.stderr = StringIO()
+                            `);
+                            try {
+                                pyodide.runPython(code);
+                            } catch (retryErr) {
+                                const stdout2 = pyodide.runPython('sys.stdout.getvalue()');
+                                const stderr2 = pyodide.runPython('sys.stderr.getvalue()');
+                                let out = '';
+                                if (stdout2) out += stdout2;
+                                if (stderr2) out += '\n' + stderr2;
+                                if (!out) out = `❌ ${retryErr}`;
+                                outputContent.textContent = out;
+                                return;
+                            }
+                        } catch (installErr) {
+                            outputContent.textContent = `❌ Failed to install "${missingModule}": ${installErr}`;
+                            return;
+                        }
+                    } else {
+                        throw err;
+                    }
+                }
+                const stdout = pyodide.runPython('sys.stdout.getvalue()');
+                const stderr = pyodide.runPython('sys.stderr.getvalue()');
+                let out = '';
+                if (stdout) out += stdout;
+                if (stderr) out += '\n' + stderr;
+                if (!out) out = '(No output)';
+                outputContent.textContent = out;
+            };
+
+            try {
+                await runWithAutoInstall();
+            } catch (err) {
+                const stdout = pyodide.runPython('sys.stdout.getvalue()');
+                const stderr = pyodide.runPython('sys.stderr.getvalue()');
+                let out = '';
+                if (stdout) out += stdout;
+                if (stderr) out += '\n' + stderr;
+                if (!out) out = `❌ ${err}`;
+                outputContent.textContent = out;
+            } finally {
+                pyodide.runPython(`
+sys.stdout = sys.__stdout__
+sys.stderr = sys.__stderr__
+                `);
+            }
+        });
+
+        // ---- Export Project (renamed from Create Project) ----
+        exportBtn.addEventListener('click', async () => {
+            if (isProcessing) return;
+            isProcessing = true;
+            exportBtn.disabled = true;
+
+            promptContent.style.display = 'none';
+            promptToggleIcon.classList.add('collapsed');
+            promptToggleIcon.textContent = '▸';
+
+            progressContainer.classList.add('visible');
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += Math.random() * 8 + 2;
+                if (progress > 100) progress = 100;
+                progressBar.style.width = progress + '%';
+                progressLabel.textContent = Math.round(progress) + '%';
+                if (progress >= 100) {
+                    clearInterval(interval);
+                    progressLabel.textContent = '✅ Ready!';
+                    exportBtn.style.display = 'none';
+                    downloadBtn.style.display = 'inline-block';
+                    noteMsg.textContent = '✅ Project exported — click the ZIP button to download.';
+                    isProcessing = false;
+                    exportBtn.disabled = false;
+                }
+            }, 300);
+
+            runBtn.disabled = true;
+            reviewBtn.disabled = true;
+            editBtn.disabled = true;
+        });
+
+        // ---- Download ZIP (renamed export) ----
+        downloadBtn.addEventListener('click', async () => {
+            if (!Object.keys(currentFiles).length) { alert('No files to download.'); return; }
+            try {
+                const JSZip = (await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm')).default;
+                const zip = new JSZip();
+                Object.entries(currentFiles).forEach(([name, content]) => zip.file(name, content));
+                const blob = await zip.generateAsync({ type: 'blob' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'GrishteSync-project.zip';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                noteMsg.textContent = '✅ Download started!';
+            } catch (e) {
+                Object.entries(currentFiles).forEach(([name, content]) => {
+                    const blob = new Blob([content], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = name;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                });
+                noteMsg.textContent = '✅ Fallback download (individual files) started.';
+            }
+        });
+
+        // ---- Preload Pyodide ----
+        (async () => {
+            await loadPyodideWithRetry();
+        })();
+
+        
     </script>
 </body>
 </html>
